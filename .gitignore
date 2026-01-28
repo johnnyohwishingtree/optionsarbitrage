@@ -48,3 +48,6 @@ Thumbs.db
 # Test data
 test_data/
 *.tmp
+
+# Archive directory
+archive/
