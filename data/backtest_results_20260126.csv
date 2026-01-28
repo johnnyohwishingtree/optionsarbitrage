@@ -1,0 +1,2 @@
+entry_time,exit_time,num_spreads,spy_strike,spx_strike,credit_received,exit_cost,gross_profit,total_commission,net_profit,profit_pct,exit_reason,time_held_min
+2026-01-26 09:45:00-05:00,2026-01-26 15:30:00-05:00,10,692,6950,3870.000000000002,6880.0,-3009.999999999998,110.0,-3009.999999999998,-77.77777777777769,3:30 PM Time Stop,345.0

@@ -1,0 +1,50 @@
+# API Keys and Secrets - NEVER COMMIT!
+.env
+secrets.yaml
+*.key
+*_keys.txt
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# Logs
+logs/
+*.log
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+
+# Virtual Environment
+venv/
+env/
+ENV/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Exports (optional - you might want to commit these)
+# Uncomment if you want to keep exports private:
+# data/exports/*.csv
+
+# Test data
+test_data/
+*.tmp

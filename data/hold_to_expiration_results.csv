@@ -1,0 +1,2 @@
+date,entry_time,spy_entry,spx_entry,spy_close,spx_close,spy_strike,spx_strike,num_spreads,call_direction,put_direction,credit_received,settlement_cost,total_pnl,return_pct
+2026-01-26,2026-01-26 15:10:00+00:00,692.02,6942.4,692.71,6950.15,692,6940,10,"Sell SPX, Buy SPY","Sell SPY, Buy SPX",2840.0000000000055,-3159.9999999992724,-319.99999999926695,-11.267605633776984

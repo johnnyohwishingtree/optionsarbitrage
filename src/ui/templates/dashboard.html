@@ -1,0 +1,629 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SPY/SPX Trading Dashboard</title>
+    <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: #0f172a;
+            color: #e2e8f0;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+
+        header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            padding: 30px;
+            border-radius: 12px;
+            margin-bottom: 30px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+        }
+
+        h1 {
+            font-size: 2.5em;
+            margin-bottom: 10px;
+        }
+
+        .subtitle {
+            opacity: 0.9;
+            font-size: 1.1em;
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+
+        .card {
+            background: #1e293b;
+            border-radius: 12px;
+            padding: 25px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+            border: 1px solid #334155;
+        }
+
+        .card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            padding-bottom: 15px;
+            border-bottom: 2px solid #334155;
+        }
+
+        .card-title {
+            font-size: 1.3em;
+            font-weight: 600;
+            color: #f1f5f9;
+        }
+
+        .status-indicator {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            display: inline-block;
+            margin-right: 8px;
+        }
+
+        .status-connected {
+            background: #10b981;
+            box-shadow: 0 0 8px #10b981;
+        }
+
+        .status-disconnected {
+            background: #ef4444;
+            box-shadow: 0 0 8px #ef4444;
+        }
+
+        .metric {
+            margin-bottom: 15px;
+        }
+
+        .metric-label {
+            color: #94a3b8;
+            font-size: 0.9em;
+            margin-bottom: 5px;
+        }
+
+        .metric-value {
+            font-size: 1.8em;
+            font-weight: 700;
+            color: #f1f5f9;
+        }
+
+        .metric-value.positive {
+            color: #10b981;
+        }
+
+        .metric-value.negative {
+            color: #ef4444;
+        }
+
+        .positions-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 15px;
+        }
+
+        .positions-table th {
+            text-align: left;
+            padding: 12px;
+            background: #0f172a;
+            color: #94a3b8;
+            font-weight: 600;
+            font-size: 0.9em;
+            text-transform: uppercase;
+        }
+
+        .positions-table td {
+            padding: 12px;
+            border-top: 1px solid #334155;
+        }
+
+        .positions-table tr:hover {
+            background: #0f172a;
+        }
+
+        .button {
+            padding: 12px 24px;
+            border: none;
+            border-radius: 8px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+            font-size: 1em;
+        }
+
+        .button-primary {
+            background: #10b981;
+            color: white;
+        }
+
+        .button-primary:hover {
+            background: #059669;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(16, 185, 129, 0.3);
+        }
+
+        .button-danger {
+            background: #ef4444;
+            color: white;
+        }
+
+        .button-danger:hover {
+            background: #dc2626;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(239, 68, 68, 0.3);
+        }
+
+        .button-secondary {
+            background: #334155;
+            color: white;
+        }
+
+        .button-secondary:hover {
+            background: #475569;
+        }
+
+        .controls {
+            display: flex;
+            gap: 15px;
+            margin-top: 20px;
+        }
+
+        .trade-log {
+            max-height: 400px;
+            overflow-y: auto;
+            background: #0f172a;
+            padding: 15px;
+            border-radius: 8px;
+            margin-top: 15px;
+        }
+
+        .trade-entry {
+            padding: 12px;
+            margin-bottom: 10px;
+            background: #1e293b;
+            border-left: 3px solid #667eea;
+            border-radius: 4px;
+        }
+
+        .trade-time {
+            color: #64748b;
+            font-size: 0.85em;
+            margin-bottom: 5px;
+        }
+
+        .badge {
+            display: inline-block;
+            padding: 4px 10px;
+            border-radius: 4px;
+            font-size: 0.85em;
+            font-weight: 600;
+        }
+
+        .badge-success {
+            background: rgba(16, 185, 129, 0.2);
+            color: #10b981;
+        }
+
+        .badge-danger {
+            background: rgba(239, 68, 68, 0.2);
+            color: #ef4444;
+        }
+
+        .badge-warning {
+            background: rgba(245, 158, 11, 0.2);
+            color: #f59e0b;
+        }
+
+        .badge-info {
+            background: rgba(59, 130, 246, 0.2);
+            color: #3b82f6;
+        }
+
+        .price-display {
+            display: flex;
+            justify-content: space-between;
+            padding: 15px;
+            background: #0f172a;
+            border-radius: 8px;
+            margin-bottom: 10px;
+        }
+
+        .price-item {
+            text-align: center;
+        }
+
+        .price-symbol {
+            color: #94a3b8;
+            font-size: 0.9em;
+            margin-bottom: 5px;
+        }
+
+        .price-value {
+            font-size: 1.5em;
+            font-weight: 700;
+            color: #f1f5f9;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #64748b;
+        }
+
+        .spinner {
+            border: 3px solid #334155;
+            border-top: 3px solid #667eea;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 20px auto;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .chart-container {
+            position: relative;
+            height: 300px;
+            margin-top: 20px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🚀 SPY/SPX Trading Dashboard</h1>
+            <p class="subtitle">Real-time monitoring and control</p>
+        </header>
+
+        <!-- Status Cards -->
+        <div class="grid">
+            <!-- System Status -->
+            <div class="card">
+                <div class="card-header">
+                    <h2 class="card-title">System Status</h2>
+                    <span class="status-indicator" id="connection-status"></span>
+                </div>
+                <div class="metric">
+                    <div class="metric-label">Trading Status</div>
+                    <div class="metric-value" id="trading-status">LOADING...</div>
+                </div>
+                <div class="metric">
+                    <div class="metric-label">Active Positions</div>
+                    <div class="metric-value" id="active-positions">0</div>
+                </div>
+                <div class="metric">
+                    <div class="metric-label">Trades Today</div>
+                    <div class="metric-value" id="trades-today">0</div>
+                </div>
+                <div class="controls">
+                    <button class="button button-primary" onclick="startTrading()">Start</button>
+                    <button class="button button-secondary" onclick="stopTrading()">Stop</button>
+                    <button class="button button-danger" onclick="closeAll()">Close All</button>
+                </div>
+            </div>
+
+            <!-- Account Info -->
+            <div class="card">
+                <div class="card-header">
+                    <h2 class="card-title">Account</h2>
+                </div>
+                <div class="metric">
+                    <div class="metric-label">Net Liquidation</div>
+                    <div class="metric-value" id="net-liquidation">$0.00</div>
+                </div>
+                <div class="metric">
+                    <div class="metric-label">Available Funds</div>
+                    <div class="metric-value" id="available-funds">$0.00</div>
+                </div>
+                <div class="metric">
+                    <div class="metric-label">Buying Power</div>
+                    <div class="metric-value" id="buying-power">$0.00</div>
+                </div>
+            </div>
+
+            <!-- Daily P&L -->
+            <div class="card">
+                <div class="card-header">
+                    <h2 class="card-title">Today's P&L</h2>
+                </div>
+                <div class="metric">
+                    <div class="metric-label">Realized P&L</div>
+                    <div class="metric-value" id="realized-pnl">$0.00</div>
+                </div>
+                <div class="metric">
+                    <div class="metric-label">Unrealized P&L</div>
+                    <div class="metric-value" id="unrealized-pnl">$0.00</div>
+                </div>
+                <div class="metric">
+                    <div class="metric-label">Total P&L</div>
+                    <div class="metric-value" id="total-pnl">$0.00</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Market Prices -->
+        <div class="card">
+            <div class="card-header">
+                <h2 class="card-title">Market Prices</h2>
+            </div>
+            <div class="price-display">
+                <div class="price-item">
+                    <div class="price-symbol">SPY</div>
+                    <div class="price-value" id="spy-price">--</div>
+                </div>
+                <div class="price-item">
+                    <div class="price-symbol">SPX</div>
+                    <div class="price-value" id="spx-price">--</div>
+                </div>
+                <div class="price-item">
+                    <div class="price-symbol">Ratio</div>
+                    <div class="price-value" id="ratio">--</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Open Positions -->
+        <div class="card">
+            <div class="card-header">
+                <h2 class="card-title">Open Positions</h2>
+            </div>
+            <div id="positions-container">
+                <div class="loading">
+                    <div class="spinner"></div>
+                    <p>Loading positions...</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Trade Log -->
+        <div class="card">
+            <div class="card-header">
+                <h2 class="card-title">Recent Trades</h2>
+            </div>
+            <div class="trade-log" id="trade-log">
+                <div class="loading">Loading trades...</div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Connect to WebSocket
+        const socket = io();
+
+        socket.on('connect', () => {
+            console.log('Connected to server');
+            updateConnectionStatus(true);
+            loadData();
+        });
+
+        socket.on('disconnect', () => {
+            console.log('Disconnected from server');
+            updateConnectionStatus(false);
+        });
+
+        // Update connection status indicator
+        function updateConnectionStatus(connected) {
+            const indicator = document.getElementById('connection-status');
+            indicator.className = connected ? 'status-indicator status-connected' : 'status-indicator status-disconnected';
+        }
+
+        // Load all data
+        function loadData() {
+            fetchStatus();
+            fetchAccount();
+            fetchMarket();
+            fetchPositions();
+            fetchTrades();
+            fetchPerformance();
+        }
+
+        // Fetch system status
+        async function fetchStatus() {
+            try {
+                const response = await fetch('/api/status');
+                const data = await response.json();
+
+                document.getElementById('trading-status').textContent = data.is_trading ? 'ACTIVE' : 'STOPPED';
+                document.getElementById('active-positions').textContent = data.open_positions || 0;
+                document.getElementById('trades-today').textContent = data.trades_today || 0;
+            } catch (error) {
+                console.error('Error fetching status:', error);
+            }
+        }
+
+        // Fetch account info
+        async function fetchAccount() {
+            try {
+                const response = await fetch('/api/account');
+                const data = await response.json();
+
+                document.getElementById('net-liquidation').textContent = formatMoney(data.net_liquidation);
+                document.getElementById('available-funds').textContent = formatMoney(data.available_funds);
+                document.getElementById('buying-power').textContent = formatMoney(data.buying_power);
+            } catch (error) {
+                console.error('Error fetching account:', error);
+            }
+        }
+
+        // Fetch market prices
+        async function fetchMarket() {
+            try {
+                const response = await fetch('/api/market');
+                const data = await response.json();
+
+                document.getElementById('spy-price').textContent = data.spy_price ? '$' + data.spy_price.toFixed(2) : '--';
+                document.getElementById('spx-price').textContent = data.spx_price ? '$' + data.spx_price.toFixed(2) : '--';
+
+                if (data.spy_price && data.spx_price) {
+                    const ratio = data.spx_price / data.spy_price;
+                    document.getElementById('ratio').textContent = ratio.toFixed(4);
+                }
+            } catch (error) {
+                console.error('Error fetching market:', error);
+            }
+        }
+
+        // Fetch positions
+        async function fetchPositions() {
+            try {
+                const response = await fetch('/api/positions');
+                const data = await response.json();
+
+                const container = document.getElementById('positions-container');
+
+                if (data.length === 0) {
+                    container.innerHTML = '<p style="text-align: center; color: #64748b;">No open positions</p>';
+                    return;
+                }
+
+                let html = '<table class="positions-table"><thead><tr><th>Trade ID</th><th>Entry</th><th>SPY Strike</th><th>SPX Strike</th><th>Entry Credit</th><th>Current P&L</th><th>Status</th></tr></thead><tbody>';
+
+                data.forEach(pos => {
+                    const pnlClass = pos.current_pnl >= 0 ? 'positive' : 'negative';
+                    html += `<tr>
+                        <td>#${pos.trade_id}</td>
+                        <td>${pos.entry_time}</td>
+                        <td>$${pos.spy_strike}</td>
+                        <td>$${pos.spx_strike}</td>
+                        <td>${formatMoney(pos.entry_credit)}</td>
+                        <td class="${pnlClass}">${formatMoney(pos.current_pnl)}</td>
+                        <td><span class="badge badge-info">${pos.status}</span></td>
+                    </tr>`;
+                });
+
+                html += '</tbody></table>';
+                container.innerHTML = html;
+            } catch (error) {
+                console.error('Error fetching positions:', error);
+            }
+        }
+
+        // Fetch trades
+        async function fetchTrades() {
+            try {
+                const response = await fetch('/api/trades?limit=10');
+                const data = await response.json();
+
+                const container = document.getElementById('trade-log');
+
+                if (data.length === 0) {
+                    container.innerHTML = '<p style="text-align: center; color: #64748b;">No trades yet</p>';
+                    return;
+                }
+
+                let html = '';
+                data.forEach(trade => {
+                    const badge = trade.final_pnl >= 0 ? 'badge-success' : 'badge-danger';
+                    const pnlText = trade.final_pnl >= 0 ? '+' + formatMoney(trade.final_pnl) : formatMoney(trade.final_pnl);
+
+                    html += `<div class="trade-entry">
+                        <div class="trade-time">${trade.trade_date}</div>
+                        <div><strong>Trade #${trade.id}</strong> - ${trade.status}</div>
+                        <div>Entry: ${formatMoney(trade.entry_credit)} | Exit: ${trade.exit_reason || 'Open'}</div>
+                        <div><span class="badge ${badge}">${pnlText}</span></div>
+                    </div>`;
+                });
+
+                container.innerHTML = html;
+            } catch (error) {
+                console.error('Error fetching trades:', error);
+            }
+        }
+
+        // Fetch performance
+        async function fetchPerformance() {
+            try {
+                const response = await fetch('/api/performance');
+                const data = await response.json();
+
+                const realizedEl = document.getElementById('realized-pnl');
+                const unrealizedEl = document.getElementById('unrealized-pnl');
+                const totalEl = document.getElementById('total-pnl');
+
+                realizedEl.textContent = formatMoney(data.daily_realized_pnl);
+                realizedEl.className = 'metric-value ' + (data.daily_realized_pnl >= 0 ? 'positive' : 'negative');
+
+                unrealizedEl.textContent = formatMoney(data.unrealized_pnl);
+                unrealizedEl.className = 'metric-value ' + (data.unrealized_pnl >= 0 ? 'positive' : 'negative');
+
+                totalEl.textContent = formatMoney(data.total_pnl);
+                totalEl.className = 'metric-value ' + (data.total_pnl >= 0 ? 'positive' : 'negative');
+            } catch (error) {
+                console.error('Error fetching performance:', error);
+            }
+        }
+
+        // Format money
+        function formatMoney(value) {
+            if (value === null || value === undefined) return '--';
+            const formatted = Math.abs(value).toFixed(2);
+            return value < 0 ? '-$' + formatted : '$' + formatted;
+        }
+
+        // Control functions
+        async function startTrading() {
+            try {
+                const response = await fetch('/api/action/start', { method: 'POST' });
+                const data = await response.json();
+                alert(data.message || 'Trading started');
+                loadData();
+            } catch (error) {
+                alert('Error starting trading: ' + error.message);
+            }
+        }
+
+        async function stopTrading() {
+            try {
+                const response = await fetch('/api/action/stop', { method: 'POST' });
+                const data = await response.json();
+                alert(data.message || 'Trading stopped');
+                loadData();
+            } catch (error) {
+                alert('Error stopping trading: ' + error.message);
+            }
+        }
+
+        async function closeAll() {
+            if (!confirm('Are you sure you want to close ALL positions?')) return;
+
+            try {
+                const response = await fetch('/api/action/close_all', { method: 'POST' });
+                const data = await response.json();
+                alert(data.message || 'All positions closed');
+                loadData();
+            } catch (error) {
+                alert('Error closing positions: ' + error.message);
+            }
+        }
+
+        // Auto-refresh every 5 seconds
+        setInterval(loadData, 5000);
+
+        // Initial load
+        loadData();
+    </script>
+</body>
+</html>
