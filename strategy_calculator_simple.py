@@ -176,6 +176,60 @@ if spy_df.empty or spx_df.empty:
 
 st.sidebar.success(f"✅ Loaded data for {selected_date}")
 
+# Data collection button
+st.sidebar.markdown("---")
+st.sidebar.subheader("📥 Data Collection")
+if st.sidebar.button("🔄 Update Data for Selected Date", use_container_width=True, help="Fetch missing data incrementally (only new bars since last update)"):
+    import subprocess
+
+    progress_placeholder = st.sidebar.empty()
+    status_placeholder = st.sidebar.empty()
+
+    try:
+        progress_placeholder.info(f"🔄 Collecting missing data for {selected_date}...")
+
+        # Run collect_market_data.py with incremental mode (no --full flag)
+        # Use /usr/bin/python3 which has ib_insync installed
+        result = subprocess.run(
+            ['/usr/bin/python3', 'collect_market_data.py', '--date', selected_date],
+            cwd='/Users/johnnyhuang/personal/optionsarbitrage',
+            capture_output=True,
+            text=True,
+            timeout=600  # 10 minute timeout
+        )
+
+        if result.returncode == 0:
+            # Parse output to get summary
+            output_lines = result.stdout.strip().split('\n')
+
+            # Look for completion message
+            if 'COLLECTION COMPLETE' in result.stdout:
+                # Extract summary info if available
+                new_bars_msg = ""
+                for line in output_lines:
+                    if 'New bars added:' in line or 'Total bars:' in line:
+                        new_bars_msg += line.strip() + "\n"
+
+                status_placeholder.success(f"✅ Data collection complete!\n\n{new_bars_msg}")
+                progress_placeholder.empty()
+
+                # Prompt user to reload
+                st.sidebar.info("🔄 Refresh the page to load updated data")
+            else:
+                status_placeholder.warning("⚠️ Collection completed but no summary found")
+                progress_placeholder.empty()
+        else:
+            # Show error
+            status_placeholder.error(f"❌ Collection failed\n\n{result.stderr[:500]}")
+            progress_placeholder.empty()
+
+    except subprocess.TimeoutExpired:
+        status_placeholder.error("❌ Collection timed out (>10 minutes)")
+        progress_placeholder.empty()
+    except Exception as e:
+        status_placeholder.error(f"❌ Error: {e}")
+        progress_placeholder.empty()
+
 # Entry time selection - convert to ET for display
 spy_df['time_et'] = spy_df['time'].dt.tz_convert('America/New_York')
 spx_df['time_et'] = spx_df['time'].dt.tz_convert('America/New_York')
@@ -238,6 +292,38 @@ spx_strike = st.sidebar.number_input(
     step=5,
     help="Strike price for SPX options (typically increments of 5)"
 )
+
+# STRIKE MONEYNESS CHECKER
+# Calculate moneyness (% from underlying at entry time)
+spy_moneyness_pct = ((spy_strike - entry_spy['close']) / entry_spy['close']) * 100
+spx_moneyness_pct = ((spx_strike - entry_spx['close']) / entry_spx['close']) * 100
+moneyness_diff = abs(spy_moneyness_pct - spx_moneyness_pct)
+
+# Display moneyness analysis
+with st.sidebar.expander("⚠️ Strike Moneyness Check", expanded=(moneyness_diff > 0.05)):
+    st.caption(f"**SPY Strike {spy_strike}:**")
+    st.caption(f"  {spy_moneyness_pct:+.4f}% from entry price ${entry_spy['close']:.2f}")
+
+    st.caption(f"**SPX Strike {spx_strike}:**")
+    st.caption(f"  {spx_moneyness_pct:+.4f}% from entry price ${entry_spx['close']:.2f}")
+
+    st.caption(f"**Moneyness Difference: {moneyness_diff:.4f}%**")
+
+    if moneyness_diff > 0.05:
+        st.warning(f"⚠️ **Strikes are mismatched by {moneyness_diff:.2f}%**\n\nThis creates basis risk! Even if SPY/SPX move perfectly in sync, the different moneyness levels will cause asymmetric P&L.")
+
+        # Suggest better matched strikes
+        # Find SPX strike that matches SPY moneyness
+        target_spx_strike = entry_spx['close'] * (1 + spy_moneyness_pct / 100)
+        suggested_spx = round(target_spx_strike / 5) * 5
+
+        # Find SPY strike that matches SPX moneyness
+        target_spy_strike = entry_spy['close'] * (1 + spx_moneyness_pct / 100)
+        suggested_spy = round(target_spy_strike)
+
+        st.info(f"**Suggested matched strikes:**\n- Keep SPY {spy_strike}, use SPX {int(suggested_spx)} ({spy_moneyness_pct:+.2f}%)\n- OR: Keep SPX {spx_strike}, use SPY {int(suggested_spy)} ({spx_moneyness_pct:+.2f}%)")
+    else:
+        st.success(f"✅ Strikes are well-matched (within 0.05%)")
 
 # Strategy direction configuration
 st.sidebar.subheader("📊 Strategy Direction")
@@ -400,25 +486,46 @@ with tab1:
             st.write(f"**Direction:** {best_combo['call_direction']}")
             st.caption(f"Database prices at {entry_time_label}")
 
+            # Determine position labels based on direction
+            if call_direction == "Buy SPX, Sell SPY":
+                # Sell SPY calls, Buy SPX calls
+                sell_label_calls = "Sell SPY Calls"
+                buy_label_calls = "Buy SPX Calls"
+                sell_strike_calls = spy_strike
+                buy_strike_calls = spx_strike
+                sell_price_calls = estimated_spy_call
+                buy_price_calls = estimated_spx_call
+                default_sell_qty = 100
+                default_buy_qty = 10
+            else:  # "Sell SPX, Buy SPY"
+                # Sell SPX calls, Buy SPY calls
+                sell_label_calls = "Sell SPX Calls"
+                buy_label_calls = "Buy SPY Calls"
+                sell_strike_calls = spx_strike
+                buy_strike_calls = spy_strike
+                sell_price_calls = estimated_spx_call
+                buy_price_calls = estimated_spy_call
+                default_sell_qty = 10
+                default_buy_qty = 100
+
             # Quantities
-            sell_spx_calls = st.number_input("Sell SPX Calls", 1, 100, 10, key=f"sell_spx_c_{entry_time_idx}_{spy_strike}_{spx_strike}")
-            buy_spy_calls = st.number_input("Buy SPY Calls", 1, 1000, 100, key=f"buy_spy_c_{entry_time_idx}_{spy_strike}_{spx_strike}")
+            sell_calls_qty = st.number_input(sell_label_calls, 1, 1000, default_sell_qty, key=f"sell_c_{entry_time_idx}_{spy_strike}_{spx_strike}_{call_direction}")
+            buy_calls_qty = st.number_input(buy_label_calls, 1, 1000, default_buy_qty, key=f"buy_c_{entry_time_idx}_{spy_strike}_{spx_strike}_{call_direction}")
 
             # Prices (use estimated prices that update with slider, strikes, and direction)
-            # Key includes time, strikes, and direction to force widget recreation when any change
-            sell_spx_call_price = st.number_input(
-                f"Sell SPX {spx_strike}C Price",
-                0.0, 100.0, float(estimated_spx_call), 0.01,
-                key=f"sell_spx_px_{entry_time_idx}_{spy_strike}_{spx_strike}_{call_direction}"
+            sell_call_price = st.number_input(
+                f"{sell_label_calls.replace('Calls', '')}@ ${sell_price_calls:.2f}",
+                0.0, 100.0, float(sell_price_calls), 0.01,
+                key=f"sell_c_px_{entry_time_idx}_{spy_strike}_{spx_strike}_{call_direction}"
             )
 
-            buy_spy_call_price = st.number_input(
-                f"Buy SPY {spy_strike}C Price",
-                0.0, 100.0, float(estimated_spy_call), 0.01,
-                key=f"buy_spy_px_{entry_time_idx}_{spy_strike}_{spx_strike}_{call_direction}"
+            buy_call_price = st.number_input(
+                f"{buy_label_calls.replace('Calls', '')}@ ${buy_price_calls:.2f}",
+                0.0, 100.0, float(buy_price_calls), 0.01,
+                key=f"buy_c_px_{entry_time_idx}_{spy_strike}_{spx_strike}_{call_direction}"
             )
 
-            call_credit = (sell_spx_call_price * sell_spx_calls * 100) - (buy_spy_call_price * buy_spy_calls * 100)
+            call_credit = (sell_call_price * sell_calls_qty * 100) - (buy_call_price * buy_calls_qty * 100)
             st.metric("Call Credit", f"${call_credit:,.2f}")
 
     # Put Spread Section
@@ -428,25 +535,46 @@ with tab1:
             st.write(f"**Direction:** {best_combo['put_direction']}")
             st.caption(f"Database prices at {entry_time_label}")
 
+            # Determine position labels based on direction
+            if put_direction == "Buy SPY, Sell SPX":
+                # Buy SPY puts, Sell SPX puts
+                sell_label_puts = "Sell SPX Puts"
+                buy_label_puts = "Buy SPY Puts"
+                sell_strike_puts = spx_strike
+                buy_strike_puts = spy_strike
+                sell_price_puts = estimated_spx_put
+                buy_price_puts = estimated_spy_put
+                default_sell_qty_puts = 10
+                default_buy_qty_puts = 100
+            else:  # "Sell SPY, Buy SPX"
+                # Sell SPY puts, Buy SPX puts
+                sell_label_puts = "Sell SPY Puts"
+                buy_label_puts = "Buy SPX Puts"
+                sell_strike_puts = spy_strike
+                buy_strike_puts = spx_strike
+                sell_price_puts = estimated_spy_put
+                buy_price_puts = estimated_spx_put
+                default_sell_qty_puts = 100
+                default_buy_qty_puts = 10
+
             # Quantities
-            sell_spy_puts = st.number_input("Sell SPY Puts", 1, 1000, 100, key=f"sell_spy_p_{entry_time_idx}_{spy_strike}_{spx_strike}")
-            buy_spx_puts = st.number_input("Buy SPX Puts", 1, 100, 10, key=f"buy_spx_p_{entry_time_idx}_{spy_strike}_{spx_strike}")
+            sell_puts_qty = st.number_input(sell_label_puts, 1, 1000, default_sell_qty_puts, key=f"sell_p_{entry_time_idx}_{spy_strike}_{spx_strike}_{put_direction}")
+            buy_puts_qty = st.number_input(buy_label_puts, 1, 1000, default_buy_qty_puts, key=f"buy_p_{entry_time_idx}_{spy_strike}_{spx_strike}_{put_direction}")
 
             # Prices (use estimated prices that update with slider, strikes, and direction)
-            # Key includes time, strikes, and direction to force widget recreation when any change
-            sell_spy_put_price = st.number_input(
-                f"Sell SPY {spy_strike}P Price",
-                0.0, 100.0, float(estimated_spy_put), 0.01,
-                key=f"sell_spy_p_px_{entry_time_idx}_{spy_strike}_{spx_strike}_{put_direction}"
+            sell_put_price = st.number_input(
+                f"{sell_label_puts.replace('Puts', '')}@ ${sell_price_puts:.2f}",
+                0.0, 100.0, float(sell_price_puts), 0.01,
+                key=f"sell_p_px_{entry_time_idx}_{spy_strike}_{spx_strike}_{put_direction}"
             )
 
-            buy_spx_put_price = st.number_input(
-                f"Buy SPX {spx_strike}P Price",
-                0.0, 100.0, float(estimated_spx_put), 0.01,
-                key=f"buy_spx_p_px_{entry_time_idx}_{spy_strike}_{spx_strike}_{put_direction}"
+            buy_put_price = st.number_input(
+                f"{buy_label_puts.replace('Puts', '')}@ ${buy_price_puts:.2f}",
+                0.0, 100.0, float(buy_price_puts), 0.01,
+                key=f"buy_p_px_{entry_time_idx}_{spy_strike}_{spx_strike}_{put_direction}"
             )
 
-            put_credit = (sell_spy_put_price * sell_spy_puts * 100) - (buy_spx_put_price * buy_spx_puts * 100)
+            put_credit = (sell_put_price * sell_puts_qty * 100) - (buy_put_price * buy_puts_qty * 100)
             st.metric("Put Credit", f"${put_credit:,.2f}")
 
     # Total credit
@@ -478,14 +606,29 @@ with tab1:
     put_pnl = 0.0
 
     if show_calls:
-        call_pnl = calculate_option_pnl(sell_spx_call_price, spx_call_settle, 'SELL', sell_spx_calls)
-        call_pnl += calculate_option_pnl(buy_spy_call_price, spy_call_settle, 'BUY', buy_spy_calls)
+        # Determine which settlement values to use based on direction
+        if call_direction == "Buy SPX, Sell SPY":
+            # Sell SPY calls, Buy SPX calls
+            call_pnl = calculate_option_pnl(sell_call_price, spy_call_settle, 'SELL', sell_calls_qty)
+            call_pnl += calculate_option_pnl(buy_call_price, spx_call_settle, 'BUY', buy_calls_qty)
+        else:  # "Sell SPX, Buy SPY"
+            # Sell SPX calls, Buy SPY calls
+            call_pnl = calculate_option_pnl(sell_call_price, spx_call_settle, 'SELL', sell_calls_qty)
+            call_pnl += calculate_option_pnl(buy_call_price, spy_call_settle, 'BUY', buy_calls_qty)
 
     if show_puts:
-        put_pnl = calculate_option_pnl(sell_spy_put_price, spy_put_settle, 'SELL', sell_spy_puts)
-        put_pnl += calculate_option_pnl(buy_spx_put_price, spx_put_settle, 'BUY', buy_spx_puts)
+        # Determine which settlement values to use based on direction
+        if put_direction == "Buy SPY, Sell SPX":
+            # Sell SPX puts, Buy SPY puts
+            put_pnl = calculate_option_pnl(sell_put_price, spx_put_settle, 'SELL', sell_puts_qty)
+            put_pnl += calculate_option_pnl(buy_put_price, spy_put_settle, 'BUY', buy_puts_qty)
+        else:  # "Sell SPY, Buy SPX"
+            # Sell SPY puts, Buy SPX puts
+            put_pnl = calculate_option_pnl(sell_put_price, spy_put_settle, 'SELL', sell_puts_qty)
+            put_pnl += calculate_option_pnl(buy_put_price, spx_put_settle, 'BUY', buy_puts_qty)
 
-    total_pnl = call_pnl + put_pnl
+    # Calculate total P&L INCLUDING initial credit collected
+    total_pnl = call_credit + put_credit + call_pnl + put_pnl
 
     # Show P&L metrics based on strategy
     if show_calls and show_puts:
@@ -493,25 +636,40 @@ with tab1:
         col1.metric("Call P&L", f"${call_pnl:,.2f}")
         col2.metric("Put P&L", f"${put_pnl:,.2f}")
         col3.metric("**Total P&L**", f"**${total_pnl:,.2f}**")
+
+        # Show breakdown
+        st.caption(f"Initial Credit: +${call_credit + put_credit:,.2f} | Settlement P&L: ${call_pnl + put_pnl:+,.2f}")
     elif show_calls:
-        st.metric("**Call P&L (Total)**", f"**${call_pnl:,.2f}**")
+        total_call_pnl = call_credit + call_pnl
+        st.metric("**Call P&L (Total)**", f"**${total_call_pnl:,.2f}**")
+        st.caption(f"Initial Credit: +${call_credit:,.2f} | Settlement P&L: ${call_pnl:+,.2f}")
     else:  # show_puts
-        st.metric("**Put P&L (Total)**", f"**${put_pnl:,.2f}**")
+        total_put_pnl = put_credit + put_pnl
+        st.metric("**Put P&L (Total)**", f"**${total_put_pnl:,.2f}**")
+        st.caption(f"Initial Credit: +${put_credit:,.2f} | Settlement P&L: ${put_pnl:+,.2f}")
 
     # Detailed breakdown
     with st.expander("📋 Detailed Breakdown"):
         if show_calls:
             st.write("**Calls:**")
-            st.write(f"- Sell {sell_spx_calls} SPX {spx_strike}C @ ${sell_spx_call_price:.2f} → Settle @ ${spx_call_settle:.2f}")
-            st.write(f"- Buy {buy_spy_calls} SPY {spy_strike}C @ ${buy_spy_call_price:.2f} → Settle @ ${spy_call_settle:.2f}")
+            if call_direction == "Buy SPX, Sell SPY":
+                st.write(f"- Sell {sell_calls_qty} SPY {spy_strike}C @ ${sell_call_price:.2f} → Settle @ ${spy_call_settle:.2f}")
+                st.write(f"- Buy {buy_calls_qty} SPX {spx_strike}C @ ${buy_call_price:.2f} → Settle @ ${spx_call_settle:.2f}")
+            else:
+                st.write(f"- Sell {sell_calls_qty} SPX {spx_strike}C @ ${sell_call_price:.2f} → Settle @ ${spx_call_settle:.2f}")
+                st.write(f"- Buy {buy_calls_qty} SPY {spy_strike}C @ ${buy_call_price:.2f} → Settle @ ${spy_call_settle:.2f}")
             st.write(f"- Net: ${call_pnl:,.2f}")
 
         if show_puts:
             if show_calls:
                 st.write("")  # Add spacing
             st.write("**Puts:**")
-            st.write(f"- Sell {sell_spy_puts} SPY {spy_strike}P @ ${sell_spy_put_price:.2f} → Settle @ ${spy_put_settle:.2f}")
-            st.write(f"- Buy {buy_spx_puts} SPX {spx_strike}P @ ${buy_spx_put_price:.2f} → Settle @ ${spx_put_settle:.2f}")
+            if put_direction == "Buy SPY, Sell SPX":
+                st.write(f"- Sell {sell_puts_qty} SPX {spx_strike}P @ ${sell_put_price:.2f} → Settle @ ${spx_put_settle:.2f}")
+                st.write(f"- Buy {buy_puts_qty} SPY {spy_strike}P @ ${buy_put_price:.2f} → Settle @ ${spy_put_settle:.2f}")
+            else:
+                st.write(f"- Sell {sell_puts_qty} SPY {spy_strike}P @ ${sell_put_price:.2f} → Settle @ ${spy_put_settle:.2f}")
+                st.write(f"- Buy {buy_puts_qty} SPX {spx_strike}P @ ${buy_put_price:.2f} → Settle @ ${spx_put_settle:.2f}")
             st.write(f"- Net: ${put_pnl:,.2f}")
 
     # Price range sweep
@@ -532,15 +690,35 @@ with tab1:
         spy_put_val = calculate_settlement_value(spy_px, spy_strike, 'P')
         spx_put_val = calculate_settlement_value(spx_px, spx_strike, 'P')
 
-        # Call P&L
-        c_pnl = calculate_option_pnl(sell_spx_call_price, spx_call_val, 'SELL', sell_spx_calls)
-        c_pnl += calculate_option_pnl(buy_spy_call_price, spy_call_val, 'BUY', buy_spy_calls)
+        # Call P&L (use same logic as in the P&L calculation section)
+        c_pnl = 0.0
+        if show_calls:
+            if call_direction == "Buy SPX, Sell SPY":
+                c_pnl = calculate_option_pnl(sell_call_price, spy_call_val, 'SELL', sell_calls_qty)
+                c_pnl += calculate_option_pnl(buy_call_price, spx_call_val, 'BUY', buy_calls_qty)
+            else:
+                c_pnl = calculate_option_pnl(sell_call_price, spx_call_val, 'SELL', sell_calls_qty)
+                c_pnl += calculate_option_pnl(buy_call_price, spy_call_val, 'BUY', buy_calls_qty)
 
-        # Put P&L
-        p_pnl = calculate_option_pnl(sell_spy_put_price, spy_put_val, 'SELL', sell_spy_puts)
-        p_pnl += calculate_option_pnl(buy_spx_put_price, spx_put_val, 'BUY', buy_spx_puts)
+        # Put P&L (use same logic as in the P&L calculation section)
+        p_pnl = 0.0
+        if show_puts:
+            if put_direction == "Buy SPY, Sell SPX":
+                p_pnl = calculate_option_pnl(sell_put_price, spx_put_val, 'SELL', sell_puts_qty)
+                p_pnl += calculate_option_pnl(buy_put_price, spy_put_val, 'BUY', buy_puts_qty)
+            else:
+                p_pnl = calculate_option_pnl(sell_put_price, spy_put_val, 'SELL', sell_puts_qty)
+                p_pnl += calculate_option_pnl(buy_put_price, spx_put_val, 'BUY', buy_puts_qty)
 
-        total = c_pnl + p_pnl
+        # INCLUDE initial credit in total P&L (only for selected strategy)
+        # Only include credit for the legs we're trading
+        credit_to_include = 0.0
+        if show_calls:
+            credit_to_include += call_credit
+        if show_puts:
+            credit_to_include += put_credit
+
+        total = credit_to_include + c_pnl + p_pnl
         pnl_results.append({
             'spy_price': spy_px,
             'spx_price': spx_px,
@@ -552,9 +730,17 @@ with tab1:
     df_pnl = pd.DataFrame(pnl_results)
 
     # Create interactive plot
+    # Adjust subtitle based on selected strategy
+    if show_calls and show_puts:
+        breakdown_title = 'Call vs Put P&L Breakdown'
+    elif show_calls:
+        breakdown_title = 'Call P&L Breakdown'
+    else:  # show_puts
+        breakdown_title = 'Put P&L Breakdown'
+
     fig = make_subplots(
         rows=2, cols=1,
-        subplot_titles=('Total P&L vs SPY Price', 'Call vs Put P&L Breakdown'),
+        subplot_titles=('Total P&L vs SPY Price', breakdown_title),
         vertical_spacing=0.15,
         row_heights=[0.6, 0.4]
     )
@@ -573,33 +759,67 @@ with tab1:
         row=1, col=1
     )
 
-    # Add entry price line
+    # Add entry price line (top position)
     fig.add_vline(
         x=entry_spy['close'],
         line_dash="dash",
         line_color="green",
-        annotation_text=f"Entry: ${entry_spy['close']:.2f}",
+        annotation=dict(
+            text=f"Entry: ${entry_spy['close']:.2f}",
+            yanchor="top",
+            y=0.95
+        ),
         row=1, col=1
     )
 
-    # Add EOD price line if different from entry
+    # Add EOD price line if different from entry (middle position)
     if abs(eod_spy - entry_spy['close']) > 0.10:  # Only show if >$0.10 difference
         fig.add_vline(
             x=eod_spy,
             line_dash="dot",
             line_color="blue",
-            annotation_text=f"EOD: ${eod_spy:.2f}",
+            annotation=dict(
+                text=f"EOD: ${eod_spy:.2f}",
+                yanchor="top",
+                y=0.85
+            ),
             row=1, col=1
         )
 
-    # Add strike line
+    # Add strike lines - show BOTH SPY and SPX strikes
+    # SPY strike line
     fig.add_vline(
         x=spy_strike,
         line_dash="dot",
         line_color="red",
-        annotation_text=f"Strike: {spy_strike}",
+        annotation=dict(
+            text=f"SPY Strike: {spy_strike}",
+            yanchor="top",
+            y=0.75,
+            xanchor="right"
+        ),
         row=1, col=1
     )
+
+    # SPX strike converted to SPY scale (using lockstep ratio)
+    # At what SPY price would SPX hit its strike (if moving in lockstep)?
+    ratio = entry_spx['close'] / entry_spy['close']
+    spy_price_at_spx_strike = spx_strike / ratio
+
+    # Only show separate line if strikes are mismatched
+    if abs(spy_price_at_spx_strike - spy_strike) > 0.5:  # More than $0.50 apart
+        fig.add_vline(
+            x=spy_price_at_spx_strike,
+            line_dash="dot",
+            line_color="orange",
+            annotation=dict(
+                text=f"SPX Strike: {spx_strike} (@ SPY {spy_price_at_spx_strike:.1f})",
+                yanchor="top",
+                y=0.65,
+                xanchor="left"
+            ),
+            row=1, col=1
+        )
 
     # Add zero line
     fig.add_hline(
@@ -610,52 +830,142 @@ with tab1:
         row=1, col=1
     )
 
-    # Call and Put breakdown
-    fig.add_trace(
-        go.Scatter(
-            x=df_pnl['spy_price'],
-            y=df_pnl['call_pnl'],
-            mode='lines',
-            name='Call P&L',
-            line=dict(color='green', width=2)
-        ),
-        row=2, col=1
-    )
+    # Call and Put breakdown - only show selected strategies
+    if show_calls:
+        fig.add_trace(
+            go.Scatter(
+                x=df_pnl['spy_price'],
+                y=df_pnl['call_pnl'],
+                mode='lines',
+                name='Call P&L',
+                line=dict(color='green', width=2)
+            ),
+            row=2, col=1
+        )
 
-    fig.add_trace(
-        go.Scatter(
-            x=df_pnl['spy_price'],
-            y=df_pnl['put_pnl'],
-            mode='lines',
-            name='Put P&L',
-            line=dict(color='orange', width=2)
-        ),
-        row=2, col=1
-    )
+    if show_puts:
+        fig.add_trace(
+            go.Scatter(
+                x=df_pnl['spy_price'],
+                y=df_pnl['put_pnl'],
+                mode='lines',
+                name='Put P&L',
+                line=dict(color='orange', width=2)
+            ),
+            row=2, col=1
+        )
+
+    # Add strike lines to breakdown chart too
+    fig.add_vline(x=spy_strike, line_dash="dot", line_color="red", row=2, col=1)
+    if abs(spy_price_at_spx_strike - spy_strike) > 0.5:
+        fig.add_vline(x=spy_price_at_spx_strike, line_dash="dot", line_color="orange", row=2, col=1)
+
+    # Add secondary x-axis for SPX prices (at top)
+    # Calculate corresponding SPX values for the SPY range
+    ratio = entry_spx['close'] / entry_spy['close']
 
     fig.update_xaxes(title_text="SPY Price ($)", row=2, col=1)
     fig.update_yaxes(title_text="P&L ($)", row=1, col=1)
     fig.update_yaxes(title_text="P&L ($)", row=2, col=1)
 
+    # Add SPX price scale on top axis
     fig.update_layout(
         height=800,
         showlegend=True,
-        hovermode='x unified'
+        hovermode='x unified',
+        xaxis=dict(
+            title="SPY Price ($)",
+            side="bottom"
+        ),
+        xaxis2=dict(
+            title="<b>SPY Price ($)</b> | SPX Price ($) [shown in hover]",
+            side="bottom",
+            overlaying="x",
+            showgrid=False
+        )
     )
+
+    # Update hover template to show both SPY and SPX prices
+    for trace in fig.data:
+        if hasattr(trace, 'x'):
+            trace.customdata = [[spy_px, spy_px * ratio] for spy_px in trace.x]
+            trace.hovertemplate = (
+                '<b>SPY:</b> $%{customdata[0]:.2f}<br>'
+                '<b>SPX:</b> $%{customdata[1]:.2f}<br>'
+                '<b>P&L:</b> $%{y:,.0f}<br>'
+                '<extra></extra>'
+            )
 
     st.plotly_chart(fig, use_container_width=True)
 
-    # Statistics
-    max_profit = df_pnl['total_pnl'].max()
-    max_loss = df_pnl['total_pnl'].min()
-    breakeven_mask = abs(df_pnl['total_pnl']) < 100
-    breakeven_prices = df_pnl[breakeven_mask]['spy_price'].values if breakeven_mask.any() else []
+    # Note about P&L calculation - show only relevant credit
+    if show_calls and show_puts:
+        credit_msg = f"${call_credit + put_credit:,.2f}"
+    elif show_calls:
+        credit_msg = f"${call_credit:,.2f} (calls only)"
+    else:  # show_puts
+        credit_msg = f"${put_credit:,.2f} (puts only)"
+
+    st.caption(f"💡 **Note:** Total P&L includes initial credit collected ({credit_msg}) plus settlement value changes")
+
+    # Statistics - Lockstep Movement (SPY and SPX move together with same %)
+    # Since SPY and SPX track the same index, they CANNOT diverge significantly
+    # Worst case is simply the minimum P&L when they move together in lockstep
+    best_case_lockstep = df_pnl['total_pnl'].max()
+    worst_case_lockstep = df_pnl['total_pnl'].min()
+
+    # Show statistics
+    col1, col2 = st.columns(2)
+    col1.metric("Best Case (Lockstep)", f"${best_case_lockstep:,.2f}", help="Maximum profit within ±3% range (SPY/SPX move together)")
+    col2.metric("Worst Case (Lockstep)", f"${worst_case_lockstep:,.2f}", help="Minimum profit within ±3% range (SPY/SPX move together)")
+
+    # Explanation of lockstep movement
+    st.caption("""
+**Lockstep Movement:** SPY and SPX track the same underlying (S&P 500 index), so they move together with the same
+percentage change. The worst case shown is the minimum P&L across the ±3% range, assuming they maintain this correlation.
+    """)
+
+    # Show basis risk warning if strikes are mismatched
+    if moneyness_diff > 0.05:
+        gap = abs(spy_price_at_spx_strike - spy_strike)
+        st.warning(f"""
+⚠️ **Strike Mismatch Detected** ({moneyness_diff:.2f}% moneyness difference)
+
+Your SPY and SPX strikes don't align (gap: ${gap:.2f} on chart). While SPY/SPX typically move together,
+mismatched strikes mean your hedge won't offset perfectly if they diverge even slightly.
+
+**Visual guide:** Two strike lines on chart (red SPY, orange SPX) - closer together = better hedge.
+        """)
+
+    # Detailed breakdown
+    st.markdown("---")
+    st.markdown("**📊 P&L Range Breakdown:**")
+
+    if worst_case_lockstep >= 0:
+        st.success(f"✅ **Profitable in all scenarios** within ±3% range (${worst_case_lockstep:,.2f} to ${best_case_lockstep:,.2f})")
+    else:
+        st.warning(f"⚠️ **Risk Range:** Loss of ${abs(worst_case_lockstep):,.2f} to profit of ${best_case_lockstep:,.2f}")
 
     col1, col2, col3 = st.columns(3)
-    col1.metric("Max Profit", f"${max_profit:,.2f}")
-    col2.metric("Max Loss (in range)", f"${max_loss:,.2f}")
-    if len(breakeven_prices) > 0:
-        col3.metric("Breakeven Zone", f"${breakeven_prices.min():.2f} - ${breakeven_prices.max():.2f}")
+    with col1:
+        # Show only relevant credit based on strategy
+        if show_calls and show_puts:
+            credit_display = f"${call_credit + put_credit:,.2f}"
+        elif show_calls:
+            credit_display = f"${call_credit:,.2f}"
+        else:  # show_puts
+            credit_display = f"${put_credit:,.2f}"
+
+        st.caption(f"**Initial Credit:** {credit_display}")
+        st.caption("Premium collected upfront")
+    with col2:
+        profit_range = best_case_lockstep - worst_case_lockstep
+        st.caption(f"**P&L Range:** ${profit_range:,.2f}")
+        st.caption("Difference between best and worst case")
+    with col3:
+        avg_pnl = df_pnl['total_pnl'].mean()
+        st.caption(f"**Average P&L:** ${avg_pnl:,.2f}")
+        st.caption("Expected outcome across all prices")
 
         # Footer
         st.markdown("---")
@@ -866,16 +1176,21 @@ with tab2:
                             df_pnl = pd.DataFrame(pnl_breakdown)
                             st.dataframe(df_pnl, use_container_width=True, hide_index=True)
 
-                        # Show estimated total
-                        st.metric("**Estimated Total P&L (If Closed Now)**", f"**${estimated_pnl:,.2f}**")
-
-                        # Compare to initial credit
+                        # Show estimated total with breakdown
                         if os.path.exists(BEST_COMBO_FILE):
                             initial_credit = best_combo.get('total_credit', 0)
-                            st.caption(f"Initial Credit Collected: ${initial_credit:,.2f}")
-                            st.caption(f"Current P&L: ${estimated_pnl:,.2f}")
-                            retention = (estimated_pnl / initial_credit * 100) if initial_credit > 0 else 0
-                            st.caption(f"Credit Retention: {retention:.1f}%")
+                            net_profit = initial_credit + estimated_pnl
+
+                            st.markdown("**P&L Breakdown:**")
+                            st.caption(f"Initial Credit Collected:    +${initial_credit:,.2f}")
+                            st.caption(f"Unrealized P&L:             {estimated_pnl:+,.2f}")
+                            st.caption(f"━" * 50)
+                            st.metric("**NET PROFIT (If Closed Now)**", f"**${net_profit:,.2f}**")
+
+                            retention = (net_profit / initial_credit * 100) if initial_credit > 0 else 0
+                            st.caption(f"Return on Capital: {retention:.1f}%")
+                        else:
+                            st.metric("**Estimated Total P&L (If Closed Now)**", f"**${estimated_pnl:,.2f}**")
 
                         # Calculate settlement P&L if market closed at current prices
                         st.markdown("---")
@@ -926,14 +1241,20 @@ with tab2:
                                 df_settlement = pd.DataFrame(settlement_breakdown)
                                 st.dataframe(df_settlement, use_container_width=True, hide_index=True)
 
-                            # Show estimated total
-                            st.metric("**Estimated Total P&L (If Closed At Expiration)**", f"**${settlement_pnl:,.2f}**")
-
+                            # Show estimated total with breakdown
                             if os.path.exists(BEST_COMBO_FILE):
-                                st.caption(f"Initial Credit Collected: ${initial_credit:,.2f}")
-                                st.caption(f"Settlement P&L: ${settlement_pnl:,.2f}")
-                                retention_settlement = (settlement_pnl / initial_credit * 100) if initial_credit > 0 else 0
-                                st.caption(f"Credit Retention: {retention_settlement:.1f}%")
+                                net_settlement_profit = initial_credit + settlement_pnl
+
+                                st.markdown("**Settlement P&L Breakdown:**")
+                                st.caption(f"Initial Credit Collected:    +${initial_credit:,.2f}")
+                                st.caption(f"Settlement P&L:             {settlement_pnl:+,.2f}")
+                                st.caption(f"━" * 50)
+                                st.metric("**NET PROFIT (At Expiration)**", f"**${net_settlement_profit:,.2f}**")
+
+                                retention_settlement = (net_settlement_profit / initial_credit * 100) if initial_credit > 0 else 0
+                                st.caption(f"Return on Capital: {retention_settlement:.1f}%")
+                            else:
+                                st.metric("**Estimated Total P&L (If Closed At Expiration)**", f"**${settlement_pnl:,.2f}**")
                         else:
                             st.warning(f"⚠️ Underlying prices not available (SPY: {spy_price}, SPX: {spx_price})")
                             st.info("Settlement P&L requires valid SPY/SPX prices with delayed market data")
