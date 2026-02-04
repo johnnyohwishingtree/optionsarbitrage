@@ -494,8 +494,8 @@ with tab1:
                     buy_strike_calls = spx_strike
                     sell_price_calls = estimated_spy_call
                     buy_price_calls = estimated_spx_call
-                    default_sell_qty = 100
-                    default_buy_qty = 10
+                    default_sell_qty = 10
+                    default_buy_qty = 1
                 else:  # "Sell SPX, Buy SPY"
                     # Sell SPX calls, Buy SPY calls
                     sell_label_calls = "Sell SPX Calls"
@@ -504,8 +504,8 @@ with tab1:
                     buy_strike_calls = spy_strike
                     sell_price_calls = estimated_spx_call
                     buy_price_calls = estimated_spy_call
-                    default_sell_qty = 10
-                    default_buy_qty = 100
+                    default_sell_qty = 1
+                    default_buy_qty = 10
 
                 # Quantities
                 sell_calls_qty = st.number_input(sell_label_calls, 1, 1000, default_sell_qty, key=f"sell_c_{entry_time_idx}_{spy_strike}_{spx_strike}_{call_direction}")
@@ -543,8 +543,8 @@ with tab1:
                     buy_strike_puts = spy_strike
                     sell_price_puts = estimated_spx_put
                     buy_price_puts = estimated_spy_put
-                    default_sell_qty_puts = 10
-                    default_buy_qty_puts = 100
+                    default_sell_qty_puts = 1
+                    default_buy_qty_puts = 10
                 else:  # "Sell SPY, Buy SPX"
                     # Sell SPY puts, Buy SPX puts
                     sell_label_puts = "Sell SPY Puts"
@@ -553,8 +553,8 @@ with tab1:
                     buy_strike_puts = spx_strike
                     sell_price_puts = estimated_spy_put
                     buy_price_puts = estimated_spx_put
-                    default_sell_qty_puts = 100
-                    default_buy_qty_puts = 10
+                    default_sell_qty_puts = 10
+                    default_buy_qty_puts = 1
 
                 # Quantities
                 sell_puts_qty = st.number_input(sell_label_puts, 1, 1000, default_sell_qty_puts, key=f"sell_p_{entry_time_idx}_{spy_strike}_{spx_strike}_{put_direction}")
@@ -584,6 +584,79 @@ with tab1:
             st.metric("**Call Credit (Total)**", f"**${call_credit:,.2f}**")
         else:  # show_puts
             st.metric("**Put Credit (Total)**", f"**${put_credit:,.2f}**")
+
+        # Margin Requirements
+        st.markdown("---")
+        st.subheader("💳 Margin Requirements")
+        st.caption("Estimated capital required to execute this strategy")
+
+        # Calculate margin for each leg
+        # For spreads, margin = max potential loss (width of spread × 100 × quantity)
+        # For short options without defined risk, we use a more complex calculation
+
+        call_margin = 0.0
+        put_margin = 0.0
+
+        if show_calls:
+            # Call spread margin calculation
+            # For SPY/SPX spreads with different strikes and ratios, calculate max loss
+            if call_direction == "Buy SPX, Sell SPY":
+                # Sold SPY calls, Bought SPX calls
+                # Max loss: (sold qty × strike) - (bought qty × strike) when both ITM
+                # Simplified: Short side notional value is the margin base
+                call_margin = sell_calls_qty * spy_strike * 100 * 0.20  # 20% of notional for naked short
+                # Reduce by credit received
+                call_margin = max(0, call_margin - call_credit)
+            else:  # "Sell SPX, Buy SPY"
+                # Sold SPX calls, Bought SPY calls
+                call_margin = sell_calls_qty * spx_strike * 100 * 0.20
+                call_margin = max(0, call_margin - call_credit)
+
+        if show_puts:
+            # Put spread margin calculation
+            if put_direction == "Buy SPY, Sell SPX":
+                # Sold SPX puts, Bought SPY puts
+                put_margin = sell_puts_qty * spx_strike * 100 * 0.20
+                put_margin = max(0, put_margin - put_credit)
+            else:  # "Sell SPY, Buy SPX"
+                # Sold SPY puts, Bought SPX puts
+                put_margin = sell_puts_qty * spy_strike * 100 * 0.20
+                put_margin = max(0, put_margin - put_credit)
+
+        total_margin = call_margin + put_margin
+
+        # Display margin requirements
+        col1, col2, col3 = st.columns(3)
+
+        with col1:
+            if show_calls:
+                st.metric("Call Margin", f"${call_margin:,.2f}",
+                         help="Estimated margin for call spread (after credit)")
+
+        with col2:
+            if show_puts:
+                st.metric("Put Margin", f"${put_margin:,.2f}",
+                         help="Estimated margin for put spread (after credit)")
+
+        with col3:
+            st.metric("**Total Margin**", f"**${total_margin:,.2f}**",
+                     help="Total estimated margin required")
+
+        st.info("⚠️ **Note:** These are rough estimates. Actual margin requirements depend on your broker's policies, account type, and real-time portfolio margin calculations. SPX (index options) typically have more favorable margin treatment than SPY (equity options). Always verify margin requirements with your broker before trading.")
+
+        with st.expander("📖 Margin Calculation Details"):
+            st.write("**How margin is estimated:**")
+            st.write("1. **Short Option Notional**: Strike price × Quantity × 100 × 20%")
+            st.write("2. **Credit Offset**: Subtract premium received")
+            st.write("3. **Long Option**: No additional margin (protective)")
+            st.write("")
+            st.write("**Broker-specific factors:**")
+            st.write("- **SPX** (cash-settled index): Often qualifies for portfolio margin with lower requirements")
+            st.write("- **SPY** (ETF): Standard equity option margin rules apply")
+            st.write("- **Spreads**: Actual margin may be lower due to defined risk")
+            st.write("- **Account type**: Portfolio margin accounts typically have 50-70% lower requirements")
+            st.write("")
+            st.write("**Best practice:** Check your broker's margin calculator or contact them directly for accurate requirements before entering the position.")
 
         # Scenario Analysis
         st.header("Scenario Analysis")
@@ -687,6 +760,138 @@ with tab1:
                 st.caption(f"  Credit: +${put_credit:,.2f}")
                 st.caption(f"  Settlement: -${put_settlement_cost:,.2f}")
                 st.caption(f"  Net: ${put_credit - put_settlement_cost:,.2f}")
+
+            # Calculate best/worst case for JSON export (need to compute before export button)
+            # Simulate P&L across ±5% price range
+            spy_range_export = np.linspace(entry_spy['close'] * 0.95, entry_spy['close'] * 1.05, 200)
+            spx_range_export = spy_range_export * (entry_spx['close'] / entry_spy['close'])
+
+            pnl_scenarios_export = []
+            for spy_px, spx_px in zip(spy_range_export, spx_range_export):
+                spy_call_val = calculate_settlement_value(spy_px, spy_strike, 'C')
+                spx_call_val = calculate_settlement_value(spx_px, spx_strike, 'C')
+                spy_put_val = calculate_settlement_value(spy_px, spy_strike, 'P')
+                spx_put_val = calculate_settlement_value(spx_px, spx_strike, 'P')
+
+                scenario_pnl = 0.0
+                if show_calls:
+                    if call_direction == "Buy SPX, Sell SPY":
+                        scenario_pnl += calculate_option_pnl(sell_call_price, spy_call_val, 'SELL', sell_calls_qty)
+                        scenario_pnl += calculate_option_pnl(buy_call_price, spx_call_val, 'BUY', buy_calls_qty)
+                    else:
+                        scenario_pnl += calculate_option_pnl(sell_call_price, spx_call_val, 'SELL', sell_calls_qty)
+                        scenario_pnl += calculate_option_pnl(buy_call_price, spy_call_val, 'BUY', buy_calls_qty)
+
+                if show_puts:
+                    if put_direction == "Buy SPY, Sell SPX":
+                        scenario_pnl += calculate_option_pnl(sell_put_price, spx_put_val, 'SELL', sell_puts_qty)
+                        scenario_pnl += calculate_option_pnl(buy_put_price, spy_put_val, 'BUY', buy_puts_qty)
+                    else:
+                        scenario_pnl += calculate_option_pnl(sell_put_price, spy_put_val, 'SELL', sell_puts_qty)
+                        scenario_pnl += calculate_option_pnl(buy_put_price, spx_put_val, 'BUY', buy_puts_qty)
+
+                # DO NOT add initial credit here - it's already included in calculate_option_pnl
+                # calculate_option_pnl returns: (entry_price - exit_price) * qty * 100 for SELL
+                # This already represents the full P&L including the credit received
+
+                pnl_scenarios_export.append({
+                    'spy_price': spy_px,
+                    'spx_price': spx_px,
+                    'net_pnl': scenario_pnl
+                })
+
+            df_scenarios_export = pd.DataFrame(pnl_scenarios_export)
+            best_case_export = df_scenarios_export.loc[df_scenarios_export['net_pnl'].idxmax()]
+            worst_case_export = df_scenarios_export.loc[df_scenarios_export['net_pnl'].idxmin()]
+
+            # Export snapshot button
+            st.markdown("---")
+            snapshot_data = {
+                "date": selected_date,
+                "entry_time": entry_time_label,
+                "strategy": {
+                    "call_direction": call_direction,
+                    "put_direction": put_direction,
+                    "spy_strike": spy_strike,
+                    "spx_strike": spx_strike
+                },
+                "entry_prices": {
+                    "spy": float(entry_spy['close']),
+                    "spx": float(entry_spx['close']),
+                    "spy_call": float(sell_call_price) if call_direction == "Buy SPX, Sell SPY" else float(buy_call_price),
+                    "spx_call": float(buy_call_price) if call_direction == "Buy SPX, Sell SPY" else float(sell_call_price),
+                    "spy_put": float(buy_put_price) if put_direction == "Buy SPY, Sell SPX" else float(sell_put_price),
+                    "spx_put": float(sell_put_price) if put_direction == "Buy SPY, Sell SPX" else float(buy_put_price)
+                },
+                "eod_prices": {
+                    "spy": float(eod_spy),
+                    "spx": float(eod_spx)
+                },
+                "positions": {
+                    "calls": {
+                        "sell_qty": int(sell_calls_qty),
+                        "buy_qty": int(buy_calls_qty),
+                        "sell_price": float(sell_call_price),
+                        "buy_price": float(buy_call_price),
+                        "sell_symbol": "SPY" if call_direction == "Buy SPX, Sell SPY" else "SPX",
+                        "buy_symbol": "SPX" if call_direction == "Buy SPX, Sell SPY" else "SPY"
+                    },
+                    "puts": {
+                        "sell_qty": int(sell_puts_qty),
+                        "buy_qty": int(buy_puts_qty),
+                        "sell_price": float(sell_put_price),
+                        "buy_price": float(buy_put_price),
+                        "sell_symbol": "SPX" if put_direction == "Buy SPY, Sell SPX" else "SPY",
+                        "buy_symbol": "SPY" if put_direction == "Buy SPY, Sell SPX" else "SPX"
+                    }
+                },
+                "settlement": {
+                    "spy_call_settle": float(spy_call_settle),
+                    "spx_call_settle": float(spx_call_settle),
+                    "spy_put_settle": float(spy_put_settle),
+                    "spx_put_settle": float(spx_put_settle)
+                },
+                "pnl": {
+                    "call_credit": float(call_credit),
+                    "put_credit": float(put_credit),
+                    "total_credit": float(total_credit),
+                    "call_settlement_cost": float(call_settlement_cost),
+                    "put_settlement_cost": float(put_settlement_cost),
+                    "total_settlement_cost": float(total_settlement_cost),
+                    "net_profit": float(net_profit),
+                    "call_pnl": float(call_pnl),
+                    "put_pnl": float(put_pnl)
+                },
+                "best_worst_case_analysis": {
+                    "best_case": {
+                        "net_pnl": float(best_case_export['net_pnl']),
+                        "spy_price": float(best_case_export['spy_price']),
+                        "spx_price": float(best_case_export['spx_price']),
+                        "pct_move_from_entry": float(((best_case_export['spy_price'] - entry_spy['close']) / entry_spy['close']) * 100)
+                    },
+                    "worst_case": {
+                        "net_pnl": float(worst_case_export['net_pnl']),
+                        "spy_price": float(worst_case_export['spy_price']),
+                        "spx_price": float(worst_case_export['spx_price']),
+                        "pct_move_from_entry": float(((worst_case_export['spy_price'] - entry_spy['close']) / entry_spy['close']) * 100)
+                    },
+                    "pnl_range": float(best_case_export['net_pnl'] - worst_case_export['net_pnl']),
+                    "risk_reward_ratio": float(abs(best_case_export['net_pnl']) / abs(worst_case_export['net_pnl'])) if worst_case_export['net_pnl'] != 0 else None,
+                    "actual_outcome": {
+                        "pct_of_best_case": float((net_profit / best_case_export['net_pnl'] * 100)) if best_case_export['net_pnl'] != 0 else 0,
+                        "pct_of_worst_case": float((net_profit / worst_case_export['net_pnl'] * 100)) if worst_case_export['net_pnl'] != 0 else 0
+                    }
+                }
+            }
+
+            snapshot_json = json.dumps(snapshot_data, indent=2)
+            st.download_button(
+                label="📋 Export Snapshot (JSON)",
+                data=snapshot_json,
+                file_name=f"strategy_snapshot_{selected_date}_{entry_time_label.replace(' ', '_').replace(':', '')}.json",
+                mime="application/json",
+                help="Download all position details, prices, and calculations as JSON for analysis"
+            )
         elif show_calls:
             total_call_pnl = call_credit + call_pnl
             st.metric("**Call P&L (Total)**", f"**${total_call_pnl:,.2f}**")
@@ -720,434 +925,137 @@ with tab1:
                 st.write(f"- Buy {buy_puts_qty} SPX {spx_strike}P @ ${buy_put_price:.2f} → Settle @ ${spx_put_settle:.2f}")
             st.write(f"- Net: ${put_pnl:,.2f}")
 
-        # Price range sweep
-        st.subheader("📈 P&L Across Price Range")
-    
-        # PREDICTIVE ANALYSIS: Use entry prices as center for range sweep
-        # This shows what P&L WOULD BE if prices moved ±3% from entry, maintaining entry-time ratio
-        # This is a PREDICTION based on entry-time information only, NOT using actual EOD values
-        spy_range = np.linspace(entry_spy['close'] * 0.97, entry_spy['close'] * 1.03, 100)
-        spx_range = spy_range * (entry_spx['close'] / entry_spy['close'])  # Maintain entry ratio
-    
-        pnl_results = []
-    
+        # Best/Worst Case Analysis
+        st.markdown("---")
+        st.header("📊 Best & Worst Case Analysis")
+
+        # Calculate best and worst case scenarios at settlement
+        # Best case: All options expire worthless (we keep all premium)
+        # Worst case: Maximum loss on any leg
+
+        # Simulate P&L across ±5% price range to find true best/worst
+        spy_range = np.linspace(entry_spy['close'] * 0.95, entry_spy['close'] * 1.05, 200)
+        spx_range = spy_range * (entry_spx['close'] / entry_spy['close'])
+
+        pnl_scenarios = []
         for spy_px, spx_px in zip(spy_range, spx_range):
-            # Calculate settlement values
+            # Calculate settlement values at this price
             spy_call_val = calculate_settlement_value(spy_px, spy_strike, 'C')
             spx_call_val = calculate_settlement_value(spx_px, spx_strike, 'C')
             spy_put_val = calculate_settlement_value(spy_px, spy_strike, 'P')
             spx_put_val = calculate_settlement_value(spx_px, spx_strike, 'P')
-    
-            # Call P&L (use same logic as in the P&L calculation section)
-            c_pnl = 0.0
+
+            # Calculate P&L for this scenario
+            scenario_pnl = 0.0
+
             if show_calls:
                 if call_direction == "Buy SPX, Sell SPY":
-                    c_pnl = calculate_option_pnl(sell_call_price, spy_call_val, 'SELL', sell_calls_qty)
-                    c_pnl += calculate_option_pnl(buy_call_price, spx_call_val, 'BUY', buy_calls_qty)
+                    scenario_pnl += calculate_option_pnl(sell_call_price, spy_call_val, 'SELL', sell_calls_qty)
+                    scenario_pnl += calculate_option_pnl(buy_call_price, spx_call_val, 'BUY', buy_calls_qty)
                 else:
-                    c_pnl = calculate_option_pnl(sell_call_price, spx_call_val, 'SELL', sell_calls_qty)
-                    c_pnl += calculate_option_pnl(buy_call_price, spy_call_val, 'BUY', buy_calls_qty)
-    
-            # Put P&L (use same logic as in the P&L calculation section)
-            p_pnl = 0.0
+                    scenario_pnl += calculate_option_pnl(sell_call_price, spx_call_val, 'SELL', sell_calls_qty)
+                    scenario_pnl += calculate_option_pnl(buy_call_price, spy_call_val, 'BUY', buy_calls_qty)
+
             if show_puts:
                 if put_direction == "Buy SPY, Sell SPX":
-                    p_pnl = calculate_option_pnl(sell_put_price, spx_put_val, 'SELL', sell_puts_qty)
-                    p_pnl += calculate_option_pnl(buy_put_price, spy_put_val, 'BUY', buy_puts_qty)
+                    scenario_pnl += calculate_option_pnl(sell_put_price, spx_put_val, 'SELL', sell_puts_qty)
+                    scenario_pnl += calculate_option_pnl(buy_put_price, spy_put_val, 'BUY', buy_puts_qty)
                 else:
-                    p_pnl = calculate_option_pnl(sell_put_price, spy_put_val, 'SELL', sell_puts_qty)
-                    p_pnl += calculate_option_pnl(buy_put_price, spx_put_val, 'BUY', buy_puts_qty)
-    
-            # INCLUDE initial credit in total P&L (only for selected strategy)
-            # Only include credit for the legs we're trading
-            credit_to_include = 0.0
-            if show_calls:
-                credit_to_include += call_credit
-            if show_puts:
-                credit_to_include += put_credit
-    
-            total = credit_to_include + c_pnl + p_pnl
-            pnl_results.append({
+                    scenario_pnl += calculate_option_pnl(sell_put_price, spy_put_val, 'SELL', sell_puts_qty)
+                    scenario_pnl += calculate_option_pnl(buy_put_price, spx_put_val, 'BUY', buy_puts_qty)
+
+            # DO NOT add initial credit here - it's already included in calculate_option_pnl
+            # calculate_option_pnl returns: (entry_price - exit_price) * qty * 100 for SELL
+            # This already represents the full P&L including the credit received
+
+            pnl_scenarios.append({
                 'spy_price': spy_px,
                 'spx_price': spx_px,
-                'call_pnl': c_pnl,
-                'put_pnl': p_pnl,
-                'total_pnl': total
+                'net_pnl': scenario_pnl
             })
-    
-        df_pnl = pd.DataFrame(pnl_results)
-    
-        # Create interactive plot
-        # Adjust subtitle based on selected strategy
-        if show_calls and show_puts:
-            breakdown_title = 'Call vs Put P&L Breakdown'
-        elif show_calls:
-            breakdown_title = 'Call P&L Breakdown'
-        else:  # show_puts
-            breakdown_title = 'Put P&L Breakdown'
-    
-        fig = make_subplots(
-            rows=2, cols=1,
-            subplot_titles=('Total P&L vs SPY Price', breakdown_title),
-            vertical_spacing=0.15,
-            row_heights=[0.6, 0.4]
-        )
-    
-        # Total P&L
-        fig.add_trace(
-            go.Scatter(
-                x=df_pnl['spy_price'],
-                y=df_pnl['total_pnl'],
-                mode='lines',
-                name='Total P&L',
-                line=dict(color='blue', width=3),
-                fill='tozeroy',
-                fillcolor='rgba(0, 100, 255, 0.1)'
-            ),
-            row=1, col=1
-        )
-    
-        # Add entry price line (top position)
-        fig.add_vline(
-            x=entry_spy['close'],
-            line_dash="dash",
-            line_color="green",
-            annotation=dict(
-                text=f"Entry: ${entry_spy['close']:.2f}",
-                yanchor="top",
-                y=0.95
-            ),
-            row=1, col=1
-        )
-    
-        # Add EOD price line if different from entry (middle position)
-        if abs(eod_spy - entry_spy['close']) > 0.10:  # Only show if >$0.10 difference
-            fig.add_vline(
-                x=eod_spy,
-                line_dash="dot",
-                line_color="blue",
-                annotation=dict(
-                    text=f"EOD: ${eod_spy:.2f}",
-                    yanchor="top",
-                    y=0.85
-                ),
-                row=1, col=1
-            )
-    
-        # Add strike lines - show BOTH SPY and SPX strikes
-        # SPY strike line
-        fig.add_vline(
-            x=spy_strike,
-            line_dash="dot",
-            line_color="red",
-            annotation=dict(
-                text=f"SPY Strike: {spy_strike}",
-                yanchor="top",
-                y=0.75,
-                xanchor="right"
-            ),
-            row=1, col=1
-        )
-    
-        # SPX strike converted to SPY scale (using lockstep ratio)
-        # At what SPY price would SPX hit its strike (if moving in lockstep)?
-        ratio = entry_spx['close'] / entry_spy['close']
-        spy_price_at_spx_strike = spx_strike / ratio
-    
-        # Only show separate line if strikes are mismatched
-        if abs(spy_price_at_spx_strike - spy_strike) > 0.5:  # More than $0.50 apart
-            fig.add_vline(
-                x=spy_price_at_spx_strike,
-                line_dash="dot",
-                line_color="orange",
-                annotation=dict(
-                    text=f"SPX Strike: {spx_strike} (@ SPY {spy_price_at_spx_strike:.1f})",
-                    yanchor="top",
-                    y=0.65,
-                    xanchor="left"
-                ),
-                row=1, col=1
-            )
-    
-        # Add zero line
-        fig.add_hline(
-            y=0,
-            line_dash="solid",
-            line_color="gray",
-            line_width=1,
-            row=1, col=1
-        )
-    
-        # Call and Put breakdown - only show selected strategies
-        if show_calls:
-            fig.add_trace(
-                go.Scatter(
-                    x=df_pnl['spy_price'],
-                    y=df_pnl['call_pnl'],
-                    mode='lines',
-                    name='Call P&L',
-                    line=dict(color='green', width=2)
-                ),
-                row=2, col=1
-            )
-    
-        if show_puts:
-            fig.add_trace(
-                go.Scatter(
-                    x=df_pnl['spy_price'],
-                    y=df_pnl['put_pnl'],
-                    mode='lines',
-                    name='Put P&L',
-                    line=dict(color='orange', width=2)
-                ),
-                row=2, col=1
-            )
-    
-        # Add strike lines to breakdown chart too
-        fig.add_vline(x=spy_strike, line_dash="dot", line_color="red", row=2, col=1)
-        if abs(spy_price_at_spx_strike - spy_strike) > 0.5:
-            fig.add_vline(x=spy_price_at_spx_strike, line_dash="dot", line_color="orange", row=2, col=1)
-    
-        # Add secondary x-axis for SPX prices (at top)
-        # Calculate corresponding SPX values for the SPY range
-        ratio = entry_spx['close'] / entry_spy['close']
-    
-        fig.update_xaxes(title_text="SPY Price ($)", row=2, col=1)
-        fig.update_yaxes(title_text="P&L ($)", row=1, col=1)
-        fig.update_yaxes(title_text="P&L ($)", row=2, col=1)
-    
-        # Add SPX price scale on top axis
-        fig.update_layout(
-            height=800,
-            showlegend=True,
-            hovermode='x unified',
-            xaxis=dict(
-                title="SPY Price ($)",
-                side="bottom"
-            ),
-            xaxis2=dict(
-                title="<b>SPY Price ($)</b> | SPX Price ($) [shown in hover]",
-                side="bottom",
-                overlaying="x",
-                showgrid=False
-            )
-        )
-    
-        # Update hover template to show both SPY and SPX prices
-        for trace in fig.data:
-            if hasattr(trace, 'x'):
-                trace.customdata = [[spy_px, spy_px * ratio] for spy_px in trace.x]
-                trace.hovertemplate = (
-                    '<b>SPY:</b> $%{customdata[0]:.2f}<br>'
-                    '<b>SPX:</b> $%{customdata[1]:.2f}<br>'
-                    '<b>P&L:</b> $%{y:,.0f}<br>'
-                    '<extra></extra>'
-                )
-    
-        # Statistics - Lockstep Movement (SPY and SPX move together with same %)
-        # Since SPY and SPX track the same index, they CANNOT diverge significantly
-        # Worst case is simply the minimum P&L when they move together in lockstep
-        best_case_lockstep = df_pnl['total_pnl'].max()
-        worst_case_lockstep = df_pnl['total_pnl'].min()
-    
-        # Find price levels where worst/best case occurs
-        worst_case_idx = df_pnl['total_pnl'].idxmin()
-        best_case_idx = df_pnl['total_pnl'].idxmax()
-        worst_case_spy_price = df_pnl.iloc[worst_case_idx]['spy_price']
-        best_case_spy_price = df_pnl.iloc[best_case_idx]['spy_price']
-        worst_case_spx_price = df_pnl.iloc[worst_case_idx]['spx_price']
-        best_case_spx_price = df_pnl.iloc[best_case_idx]['spx_price']
-    
-        # Add worst/best case shaded regions to the chart
-        # Create a narrow band around worst/best case prices for visual highlighting
-        worst_range_width = (entry_spy['close'] * 0.03) * 0.05  # 5% of the total ±3% range
-        best_range_width = (entry_spy['close'] * 0.03) * 0.05
-    
-        # Add worst case shaded region (red/pink)
-        fig.add_vrect(
-            x0=worst_case_spy_price - worst_range_width,
-            x1=worst_case_spy_price + worst_range_width,
-            fillcolor="rgba(255, 0, 0, 0.2)",
-            layer="below",
-            line_width=0,
-            row=1, col=1,
-            annotation=dict(
-                text=f"Worst Case<br>${worst_case_spy_price:.2f}",
-                textangle=0,
-                yanchor="top",
-                y=0.95,
-                xanchor="center",
-                font=dict(size=10, color="red")
-            )
-        )
-    
-        # Add best case shaded region (green/lime)
-        fig.add_vrect(
-            x0=best_case_spy_price - best_range_width,
-            x1=best_case_spy_price + best_range_width,
-            fillcolor="rgba(0, 255, 0, 0.2)",
-            layer="below",
-            line_width=0,
-            row=1, col=1,
-            annotation=dict(
-                text=f"Best Case<br>${best_case_spy_price:.2f}",
-                textangle=0,
-                yanchor="top",
-                y=0.85,
-                xanchor="center",
-                font=dict(size=10, color="green")
-            )
-        )
-    
-        st.plotly_chart(fig, use_container_width=True)
-    
-        # Note about P&L calculation - show only relevant credit
-        if show_calls and show_puts:
-            credit_msg = f"${call_credit + put_credit:,.2f}"
-        elif show_calls:
-            credit_msg = f"${call_credit:,.2f} (calls only)"
-        else:  # show_puts
-            credit_msg = f"${put_credit:,.2f} (puts only)"
-    
-        st.caption(f"💡 **Note:** Total P&L includes initial credit collected ({credit_msg}) plus settlement value changes")
-    
-        # LOCKSTEP SETTLEMENT ANALYSIS
-        # Calculate theoretical constant settlement cost in perfect lockstep
-        if show_calls and show_puts:
-            st.markdown("---")
-            st.markdown("### 🔒 Lockstep Settlement Analysis")
-            st.caption("**What happens if SPY and SPX maintain perfect 10:1 ratio at settlement**")
-    
-            # Using ratio from entry time for lockstep calculation
-            ratio_from_entry = entry_spx['close'] / entry_spy['close']
-    
-            # Theoretical constant settlement cost formula:
-            # For perfect lockstep (SPX = ratio × SPY), settlement cost is constant regardless of price level
-            # Settlement Cost = (SPX_strike - ratio × SPY_strike) × sell_qty × 100
-    
-            theoretical_settlement = (spx_strike - ratio_from_entry * spy_strike) * sell_puts_qty * 100
-            theoretical_net_pnl = total_credit - theoretical_settlement
-    
-            col1, col2 = st.columns(2)
-            with col1:
-                st.metric(
-                    "Lockstep Settlement Cost",
-                    f"${theoretical_settlement:,.2f}",
-                    help="Constant cost if SPY/SPX maintain perfect lockstep"
-                )
-            with col2:
-                st.metric(
-                    "Lockstep Net P&L",
-                    f"${theoretical_net_pnl:,.2f}",
-                    help="Credit - Lockstep Settlement Cost"
-                )
-    
-            # Detailed breakdown
-            with st.expander("📋 Lockstep Settlement Breakdown"):
-                st.markdown(f"""
-    **Perfect Lockstep Formula:**
-    
-    In perfect lockstep (SPX = {ratio_from_entry:.4f} × SPY), the settlement cost is **constant** regardless of where SPY/SPX close.
-    
-    **Calculation:**
-    - Strike Gap = SPX Strike - (Ratio × SPY Strike)
-    - Strike Gap = {spx_strike} - ({ratio_from_entry:.4f} × {spy_strike})
-    - Strike Gap = {spx_strike} - {ratio_from_entry * spy_strike:.2f}
-    - Strike Gap = {spx_strike - ratio_from_entry * spy_strike:.2f} points
-    
-    **Constant Settlement Cost:**
-    - Settlement = Gap × Quantity × Multiplier
-    - Settlement = {spx_strike - ratio_from_entry * spy_strike:.2f} × {sell_puts_qty} × 100
-    - Settlement = **${theoretical_settlement:,.2f}**
-    
-    **Net P&L (in perfect lockstep):**
-    - Net P&L = Credit - Settlement
-    - Net P&L = ${total_credit:,.2f} - ${theoretical_settlement:,.2f}
-    - Net P&L = **${theoretical_net_pnl:,.2f}**
-    
-    **Key Insight:** This value is the SAME at any price level as long as SPY/SPX maintain their {ratio_from_entry:.4f} ratio.
-    
-    **Why actual P&L differs from lockstep:**
-    - Entry option prices include **time premium** (not just intrinsic value)
-    - At settlement, all time premium decays to zero
-    - Real-world P&L varies due to time decay + small SPY/SPX divergence ({abs(eod_spx / eod_spy - ratio_from_entry):.6f} ratio diff at EOD)
-                """)
-    
-            # Show strike moneyness analysis
-            if moneyness_diff > 0.05:
-                st.warning(f"""
-    ⚠️ **Strike Mismatch Alert:**
-    
-    Your strikes have {moneyness_diff:.2f}% moneyness difference, which creates **${abs(theoretical_settlement):,.2f}** lockstep settlement cost.
-    
-    - To minimize lockstep risk, match strike moneyness to <0.01%
-    - Current gap: SPX {spx_strike} - ({ratio_from_entry:.4f} × SPY {spy_strike}) = {spx_strike - ratio_from_entry * spy_strike:.2f} points
-                """)
-            else:
-                st.success(f"""
-    ✅ **Well-Matched Strikes:**
-    
-    Your strikes are well-matched ({moneyness_diff:.4f}% difference), resulting in minimal lockstep settlement cost of ${abs(theoretical_settlement):,.2f}.
-                """)
-    
-    
-            st.caption(f"**Current Configuration:**")
-            st.caption(f"- SPY Strike: {spy_strike} ({spy_moneyness_pct:+.4f}% moneyness)")
-            st.caption(f"- SPX Strike: {spx_strike} ({spx_moneyness_pct:+.4f}% moneyness)")
-            st.caption(f"- Moneyness difference: {moneyness_diff:.4f}%")
-    
-            if moneyness_diff < 0.01:
-                st.success("✅ Strikes are very well matched - P&L range will be tight")
-            elif moneyness_diff < 0.05:
-                st.info("✓ Strikes are reasonably matched")
-            else:
-                st.warning(f"⚠️ Strikes have {moneyness_diff:.2f}% mismatch - this creates the ${best_case_lockstep - worst_case_lockstep:,.2f} P&L range")
-    
-        # Show basis risk warning if strikes are mismatched
-        if moneyness_diff > 0.05:
-            gap = abs(spy_price_at_spx_strike - spy_strike)
-            st.warning(f"""
-    ⚠️ **Strike Mismatch Detected** ({moneyness_diff:.2f}% moneyness difference)
-    
-    Your SPY and SPX strikes don't align (gap: ${gap:.2f} on chart). While SPY/SPX typically move together,
-    mismatched strikes mean your hedge won't offset perfectly if they diverge even slightly.
-    
-    **Visual guide:** Two strike lines on chart (red SPY, orange SPX) - closer together = better hedge.
-            """)
-    
-        # Detailed breakdown
+
+        df_scenarios = pd.DataFrame(pnl_scenarios)
+
+        # Find best and worst cases
+        best_case = df_scenarios.loc[df_scenarios['net_pnl'].idxmax()]
+        worst_case = df_scenarios.loc[df_scenarios['net_pnl'].idxmin()]
+
+        # Display results
+        col1, col2 = st.columns(2)
+
+        with col1:
+            st.markdown("### ✅ Best Case Scenario")
+            st.metric("Maximum Profit", f"${best_case['net_pnl']:,.2f}",
+                     help="Best possible outcome at settlement")
+            st.caption(f"**Occurs at:**")
+            st.caption(f"  SPY: ${best_case['spy_price']:.2f}")
+            st.caption(f"  SPX: ${best_case['spx_price']:.2f}")
+
+            # Explain what happens in best case
+            pct_move = ((best_case['spy_price'] - entry_spy['close']) / entry_spy['close']) * 100
+            direction = "rises" if pct_move > 0 else "falls"
+            st.caption(f"  Market {direction} {abs(pct_move):.1f}% from entry")
+
+        with col2:
+            st.markdown("### ❌ Worst Case Scenario")
+            st.metric("Maximum Loss", f"${worst_case['net_pnl']:,.2f}",
+                     help="Worst possible outcome at settlement")
+            st.caption(f"**Occurs at:**")
+            st.caption(f"  SPY: ${worst_case['spy_price']:.2f}")
+            st.caption(f"  SPX: ${worst_case['spx_price']:.2f}")
+
+            # Explain what happens in worst case
+            pct_move = ((worst_case['spy_price'] - entry_spy['close']) / entry_spy['close']) * 100
+            direction = "rises" if pct_move > 0 else "falls"
+            st.caption(f"  Market {direction} {abs(pct_move):.1f}% from entry")
+
+        # Risk/Reward Summary
         st.markdown("---")
-        st.markdown("**📊 P&L Range Breakdown:**")
-    
-        if worst_case_lockstep >= 0:
-            st.success(f"✅ **Profitable in all scenarios** within ±3% range (${worst_case_lockstep:,.2f} to ${best_case_lockstep:,.2f})")
-        else:
-            st.warning(f"⚠️ **Risk Range:** Loss of ${abs(worst_case_lockstep):,.2f} to profit of ${best_case_lockstep:,.2f}")
-    
+        risk_reward_ratio = abs(best_case['net_pnl']) / abs(worst_case['net_pnl']) if worst_case['net_pnl'] != 0 else float('inf')
+
         col1, col2, col3 = st.columns(3)
         with col1:
-            # Show only relevant credit based on strategy
-            if show_calls and show_puts:
-                credit_display = f"${call_credit + put_credit:,.2f}"
-            elif show_calls:
-                credit_display = f"${call_credit:,.2f}"
-            else:  # show_puts
-                credit_display = f"${put_credit:,.2f}"
-    
-            st.caption(f"**Initial Credit:** {credit_display}")
-            st.caption("Premium collected upfront")
+            total_credit_collected = (call_credit if show_calls else 0) + (put_credit if show_puts else 0)
+            st.metric("Total Credit", f"${total_credit_collected:,.2f}",
+                     help="Premium collected upfront")
         with col2:
-            profit_range = best_case_lockstep - worst_case_lockstep
-            st.caption(f"**P&L Range:** ${profit_range:,.2f}")
-            st.caption("Difference between best and worst case")
+            pnl_range = best_case['net_pnl'] - worst_case['net_pnl']
+            st.metric("P&L Range", f"${pnl_range:,.2f}",
+                     help="Difference between best and worst case")
         with col3:
-            avg_pnl = df_pnl['total_pnl'].mean()
-            st.caption(f"**Average P&L:** ${avg_pnl:,.2f}")
-            st.caption("Expected outcome across all prices")
-    
-            # Footer
-            st.markdown("---")
-            st.caption("**Data Sources:** Real market prices from Jan 27, 2026 | Underlying: 1-min bars | Options: Live bid/ask quotes")
+            if risk_reward_ratio != float('inf'):
+                st.metric("Risk/Reward", f"{risk_reward_ratio:.2f}",
+                         help="Ratio of potential profit to potential loss")
+            else:
+                st.metric("Risk/Reward", "∞ (No loss scenario)",
+                         help="Best case exists with no worst case loss")
+
+        # Overall assessment
+        if worst_case['net_pnl'] >= 0:
+            st.success(f"✅ **Strategy is profitable in all scenarios** within ±5% price range")
+        elif best_case['net_pnl'] > 0:
+            st.warning(f"⚠️ **Mixed outcomes:** Potential profit of ${best_case['net_pnl']:,.2f} or loss of ${abs(worst_case['net_pnl']):,.2f}")
+        else:
+            st.error(f"❌ **Strategy has losses in all scenarios** within ±5% range")
+
+        # Actual outcome comparison
+        st.markdown("---")
+        st.markdown("### 📍 Actual Outcome at Market Close")
+        st.info(f"**SPY closed at ${eod_spy:.2f}, SPX at ${eod_spx:.2f}**")
+
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("Actual Net P&L", f"${net_profit:,.2f}")
+        with col2:
+            pct_of_best = (net_profit / best_case['net_pnl'] * 100) if best_case['net_pnl'] != 0 else 0
+            st.metric("% of Best Case", f"{pct_of_best:.1f}%")
+        with col3:
+            pct_of_worst = (net_profit / worst_case['net_pnl'] * 100) if worst_case['net_pnl'] != 0 else 0
+            st.metric("% of Worst Case", f"{pct_of_worst:.1f}%")
+
+        # Footer
+        st.markdown("---")
+        st.caption("**Analysis:** Best/worst case calculated across ±5% price range with lockstep SPY/SPX movement")
     
     # Tab 2: Live Paper Trading
 with tab2:
