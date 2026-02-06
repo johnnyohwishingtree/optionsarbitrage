@@ -15,14 +15,18 @@ Usage:
     python collect_market_data.py                    # Collect/update today's data
     python collect_market_data.py --date 20260126    # Collect specific date
     python collect_market_data.py --full             # Force full re-fetch (ignore existing)
+    python collect_market_data.py --data-type bidask # Collect BID_ASK data only
+    python collect_market_data.py --data-type both   # Collect TRADES + BID_ASK
 
 Output files saved to data/:
     - underlying_prices_{date}.csv    (SPY/SPX stock prices)
-    - options_data_{date}.csv         (all options within ±3%)
+    - options_data_{date}.csv         (all options within ±3% - TRADES)
+    - options_bidask_{date}.csv       (bid/ask/midpoint data)
 """
 
 import sys
 import os
+import time
 import argparse
 from datetime import datetime, timedelta
 import pandas as pd
@@ -54,7 +58,7 @@ def get_last_timestamp(file_path):
         return None
 
 
-def collect_daily_data(date_str=None, strike_range_pct=0.03, force_full=False):
+def collect_daily_data(date_str=None, strike_range_pct=0.03, force_full=False, data_type='trades'):
     """
     Collect full-day historical data for SPY/SPX stocks and options
 
@@ -62,6 +66,7 @@ def collect_daily_data(date_str=None, strike_range_pct=0.03, force_full=False):
         date_str: Date in YYYYMMDD format (default: today)
         strike_range_pct: Strike range as percentage (default: 0.03 for ±3%)
         force_full: If True, re-fetch all data (ignore existing)
+        data_type: 'trades' (default), 'bidask', or 'both'
     """
     if date_str is None:
         date_str = datetime.now().strftime('%Y%m%d')
@@ -70,23 +75,32 @@ def collect_daily_data(date_str=None, strike_range_pct=0.03, force_full=False):
     print(f'📊 COLLECTING MARKET DATA FOR {date_str}')
     print('='*70)
 
+    collect_trades = data_type in ('trades', 'both')
+    collect_bidask = data_type in ('bidask', 'both')
+
     # Define output file paths
     underlying_file = f'data/underlying_prices_{date_str}.csv'
     options_file = f'data/options_data_{date_str}.csv'
+    bidask_file = f'data/options_bidask_{date_str}.csv'
 
     # Check for existing data (incremental mode)
     last_underlying_time = None
     last_options_time = None
+    last_bidask_time = None
 
     if not force_full:
         last_underlying_time = get_last_timestamp(underlying_file)
         last_options_time = get_last_timestamp(options_file)
+        if collect_bidask:
+            last_bidask_time = get_last_timestamp(bidask_file)
 
         if last_underlying_time:
             print(f'\n📁 Found existing data')
             print(f'   Underlying last update: {last_underlying_time}')
         if last_options_time:
             print(f'   Options last update: {last_options_time}')
+        if last_bidask_time:
+            print(f'   BID_ASK last update: {last_bidask_time}')
 
     # Connect to IB Gateway
     client = IBKRClient(port=4002, client_id=600)
@@ -185,68 +199,26 @@ def collect_daily_data(date_str=None, strike_range_pct=0.03, force_full=False):
         total_contracts = (len(spy_strikes) + len(spx_strikes)) * 2
         print(f'   Total contracts to fetch: {total_contracts}')
 
-        # Step 4: Fetch options historical data
-        print(f'\n4️⃣  Fetching options data (1-minute bars)...')
-        options_data = []
-        current = 0
-
-        # Fetch SPY options
+        # Build list of all contracts to iterate over
+        all_contracts = []
         for strike in spy_strikes:
             for right in ['C', 'P']:
-                current += 1
-                print(f'   [{current}/{total_contracts}] SPY {strike} {right}', end=' ')
-
-                try:
-                    contract = Option('SPY', date_str, strike, right, 'SMART')
-                    client.ib.qualifyContracts(contract)
-
-                    bars = client.ib.reqHistoricalData(
-                        contract,
-                        endDateTime='',
-                        durationStr='1 D',
-                        barSizeSetting='1 min',
-                        whatToShow='TRADES',
-                        useRTH=True,
-                        formatDate=1
-                    )
-
-                    new_bars = 0
-                    for bar in bars:
-                        bar_time = pd.to_datetime(bar.date)
-
-                        # Skip if we already have this data (incremental mode)
-                        if last_options_time and bar_time <= last_options_time:
-                            continue
-
-                        options_data.append({
-                            'symbol': 'SPY',
-                            'strike': strike,
-                            'right': right,
-                            'time': bar.date,
-                            'open': bar.open,
-                            'high': bar.high,
-                            'low': bar.low,
-                            'close': bar.close,
-                            'volume': bar.volume
-                        })
-                        new_bars += 1
-
-                    if new_bars > 0:
-                        print(f'→ {new_bars} new bars')
-                    else:
-                        print(f'→ {len(bars)} total (0 new)')
-
-                except Exception as e:
-                    print(f'→ Error: {e}')
-
-        # Fetch SPX options
+                all_contracts.append(('SPY', strike, right))
         for strike in spx_strikes:
             for right in ['C', 'P']:
-                current += 1
-                print(f'   [{current}/{total_contracts}] SPX {strike} {right}', end=' ')
+                all_contracts.append(('SPX', strike, right))
+
+        # Step 4: Fetch TRADES options historical data
+        if collect_trades:
+            print(f'\n4️⃣  Fetching TRADES options data (1-minute bars)...')
+            options_data = []
+            request_count = 0
+
+            for idx, (symbol, strike, right) in enumerate(all_contracts):
+                print(f'   [{idx+1}/{total_contracts}] {symbol} {strike} {right}', end=' ')
 
                 try:
-                    contract = Option('SPX', date_str, strike, right, 'SMART')
+                    contract = Option(symbol, date_str, strike, right, 'SMART')
                     client.ib.qualifyContracts(contract)
 
                     bars = client.ib.reqHistoricalData(
@@ -258,17 +230,17 @@ def collect_daily_data(date_str=None, strike_range_pct=0.03, force_full=False):
                         useRTH=True,
                         formatDate=1
                     )
+                    request_count += 1
 
                     new_bars = 0
                     for bar in bars:
                         bar_time = pd.to_datetime(bar.date)
 
-                        # Skip if we already have this data (incremental mode)
                         if last_options_time and bar_time <= last_options_time:
                             continue
 
                         options_data.append({
-                            'symbol': 'SPX',
+                            'symbol': symbol,
                             'strike': strike,
                             'right': right,
                             'time': bar.date,
@@ -285,37 +257,116 @@ def collect_daily_data(date_str=None, strike_range_pct=0.03, force_full=False):
                     else:
                         print(f'→ {len(bars)} total (0 new)')
 
+                    # IB pacing: 0.5s between requests, 10s pause every 50 requests
+                    time.sleep(0.5)
+                    if request_count % 50 == 0:
+                        print(f'   ⏳ Pacing pause (50 requests)...')
+                        time.sleep(10)
+
                 except Exception as e:
                     print(f'→ Error: {e}')
 
-        # Save or append options data
-        if options_data:
-            new_df = pd.DataFrame(options_data)
+            # Save or append TRADES options data
+            if options_data:
+                new_df = pd.DataFrame(options_data)
 
-            if os.path.exists(options_file) and not force_full:
-                # Append to existing data
-                existing_df = pd.read_csv(options_file)
-                combined_df = pd.concat([existing_df, new_df], ignore_index=True)
-                combined_df.to_csv(options_file, index=False)
+                if os.path.exists(options_file) and not force_full:
+                    existing_df = pd.read_csv(options_file)
+                    combined_df = pd.concat([existing_df, new_df], ignore_index=True)
+                    combined_df.to_csv(options_file, index=False)
 
-                print(f'\n✅ COLLECTION COMPLETE (INCREMENTAL UPDATE)')
-                print(f'   Options file: {options_file}')
-                print(f'   New bars added: {len(new_df):,}')
-                print(f'   Total bars now: {len(combined_df):,}')
-                print(f'   Underlying file: {underlying_file}')
+                    print(f'\n   ✅ TRADES: Appended {len(new_df):,} new bars to {options_file}')
+                    print(f'   Total bars now: {len(combined_df):,}')
+                else:
+                    new_df.to_csv(options_file, index=False)
+
+                    print(f'\n   ✅ TRADES: Saved {len(new_df):,} bars to {options_file}')
+                    print(f'   Unique contracts: {len(new_df.groupby(["symbol", "strike", "right"]))}')
             else:
-                # Create new file
-                new_df.to_csv(options_file, index=False)
+                print(f'\n   ℹ️  No new TRADES data to add')
 
-                print(f'\n✅ COLLECTION COMPLETE')
-                print(f'   Options file: {options_file}')
-                print(f'   Total bars: {len(new_df):,}')
-                print(f'   Unique contracts: {len(new_df.groupby(["symbol", "strike", "right"]))}')
-                print(f'   Underlying file: {underlying_file}')
-        else:
-            print('\n✅ COLLECTION COMPLETE')
-            print(f'   ℹ️  No new options data to add')
-            print(f'   All data is up to date!')
+        # Step 5: Fetch BID_ASK options historical data
+        if collect_bidask:
+            print(f'\n5️⃣  Fetching BID_ASK options data (1-minute bars)...')
+            bidask_data = []
+            request_count = 0
+
+            for idx, (symbol, strike, right) in enumerate(all_contracts):
+                print(f'   [{idx+1}/{total_contracts}] {symbol} {strike} {right} BID_ASK', end=' ')
+
+                try:
+                    contract = Option(symbol, date_str, strike, right, 'SMART')
+                    client.ib.qualifyContracts(contract)
+
+                    bars = client.ib.reqHistoricalData(
+                        contract,
+                        endDateTime='',
+                        durationStr='1 D',
+                        barSizeSetting='1 min',
+                        whatToShow='BID_ASK',
+                        useRTH=True,
+                        formatDate=1
+                    )
+                    request_count += 1
+
+                    new_bars = 0
+                    for bar in bars:
+                        bar_time = pd.to_datetime(bar.date)
+
+                        if last_bidask_time and bar_time <= last_bidask_time:
+                            continue
+
+                        # BID_ASK bars: high=ask, low=bid, close=midpoint
+                        bidask_data.append({
+                            'symbol': symbol,
+                            'strike': strike,
+                            'right': right,
+                            'time': bar.date,
+                            'bid': bar.low,
+                            'ask': bar.high,
+                            'midpoint': bar.close
+                        })
+                        new_bars += 1
+
+                    if new_bars > 0:
+                        print(f'→ {new_bars} new bars')
+                    else:
+                        print(f'→ {len(bars)} total (0 new)')
+
+                    # IB pacing: 0.5s between requests, 10s pause every 50 requests
+                    time.sleep(0.5)
+                    if request_count % 50 == 0:
+                        print(f'   ⏳ Pacing pause (50 requests)...')
+                        time.sleep(10)
+
+                except Exception as e:
+                    print(f'→ Error: {e}')
+
+            # Save or append BID_ASK data
+            if bidask_data:
+                new_df = pd.DataFrame(bidask_data)
+
+                if os.path.exists(bidask_file) and not force_full:
+                    existing_df = pd.read_csv(bidask_file)
+                    combined_df = pd.concat([existing_df, new_df], ignore_index=True)
+                    combined_df.to_csv(bidask_file, index=False)
+
+                    print(f'\n   ✅ BID_ASK: Appended {len(new_df):,} new bars to {bidask_file}')
+                    print(f'   Total bars now: {len(combined_df):,}')
+                else:
+                    new_df.to_csv(bidask_file, index=False)
+
+                    print(f'\n   ✅ BID_ASK: Saved {len(new_df):,} bars to {bidask_file}')
+                    print(f'   Unique contracts: {len(new_df.groupby(["symbol", "strike", "right"]))}')
+            else:
+                print(f'\n   ℹ️  No new BID_ASK data to add')
+
+        print(f'\n✅ COLLECTION COMPLETE')
+        print(f'   Underlying file: {underlying_file}')
+        if collect_trades:
+            print(f'   TRADES file: {options_file}')
+        if collect_bidask:
+            print(f'   BID_ASK file: {bidask_file}')
 
     finally:
         client.disconnect()
@@ -332,6 +383,8 @@ Examples:
   python collect_market_data.py --date 20260126    # Collect specific date (incremental)
   python collect_market_data.py --full             # Force full re-fetch (ignore existing data)
   python collect_market_data.py --range 0.05       # Use ±5% strike range
+  python collect_market_data.py --data-type bidask # Collect BID_ASK data only
+  python collect_market_data.py --data-type both   # Collect TRADES + BID_ASK data
 
 Incremental Mode (default):
   - Script checks existing data files
@@ -366,6 +419,14 @@ Full Mode (--full flag):
         help='Force full re-fetch, ignore existing data'
     )
 
+    parser.add_argument(
+        '--data-type',
+        type=str,
+        default='trades',
+        choices=['trades', 'bidask', 'both'],
+        help='Data type to collect: trades (default), bidask, or both'
+    )
+
     args = parser.parse_args()
 
     # Ensure data directory exists
@@ -375,7 +436,8 @@ Full Mode (--full flag):
     collect_daily_data(
         date_str=args.date,
         strike_range_pct=args.range,
-        force_full=args.full
+        force_full=args.full,
+        data_type=args.data_type
     )
 
 
