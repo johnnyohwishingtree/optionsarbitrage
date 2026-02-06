@@ -27,10 +27,14 @@ import argparse
 from datetime import datetime, timedelta
 import pandas as pd
 
+# ib_insync is unmaintained; use ib_async as drop-in replacement
+import ib_async
+sys.modules['ib_insync'] = ib_async
+
 sys.path.insert(0, '/Users/johnnyhuang/personal/optionsarbitrage')
 
 from src.broker.ibkr_client import IBKRClient
-from ib_insync import Option, Stock, Index
+from ib_async import Option, Stock, Index
 
 
 def get_last_timestamp(file_path):

@@ -7,7 +7,10 @@ Handles connection and order execution via IB Gateway/TWS
 import logging
 from datetime import datetime
 from typing import Optional, List, Dict, Any
-from ib_insync import IB, Stock, Option, Contract, Order, Trade
+try:
+    from ib_insync import IB, Stock, Option, Contract, Order, Trade
+except (ImportError, RuntimeError):
+    from ib_async import IB, Stock, Option, Contract, Order, Trade
 import asyncio
 
 logger = logging.getLogger(__name__)

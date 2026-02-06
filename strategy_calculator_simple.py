@@ -93,24 +93,58 @@ def calculate_best_worst_case_with_basis_drift(
             spy_put_val = calculate_settlement_value(spy_px, spy_strike, 'P')
             spx_put_val = calculate_settlement_value(spx_px, spx_strike, 'P')
 
-            # Calculate P&L
+            # Calculate P&L with per-leg breakdown
             scenario_pnl = 0.0
+            call_credit_total = 0.0
+            call_settle_cost = 0.0
+            put_credit_total = 0.0
+            put_settle_cost = 0.0
+            sell_call_settle_val = 0.0
+            buy_call_settle_val = 0.0
+            sell_put_settle_val = 0.0
+            buy_put_settle_val = 0.0
 
             if show_calls:
+                call_credit_total = (sell_call_price * sell_calls_qty * 100) - (buy_call_price * buy_calls_qty * 100)
                 if call_direction == "Buy SPX, Sell SPY":
                     scenario_pnl += calculate_option_pnl(sell_call_price, spy_call_val, 'SELL', sell_calls_qty)
                     scenario_pnl += calculate_option_pnl(buy_call_price, spx_call_val, 'BUY', buy_calls_qty)
+                    sell_call_settle_val = spy_call_val
+                    buy_call_settle_val = spx_call_val
+                    call_settle_cost = (spy_call_val * sell_calls_qty * 100) - (spx_call_val * buy_calls_qty * 100)
                 else:
                     scenario_pnl += calculate_option_pnl(sell_call_price, spx_call_val, 'SELL', sell_calls_qty)
                     scenario_pnl += calculate_option_pnl(buy_call_price, spy_call_val, 'BUY', buy_calls_qty)
+                    sell_call_settle_val = spx_call_val
+                    buy_call_settle_val = spy_call_val
+                    call_settle_cost = (spx_call_val * sell_calls_qty * 100) - (spy_call_val * buy_calls_qty * 100)
 
             if show_puts:
+                put_credit_total = (sell_put_price * sell_puts_qty * 100) - (buy_put_price * buy_puts_qty * 100)
                 if put_direction == "Buy SPY, Sell SPX":
                     scenario_pnl += calculate_option_pnl(sell_put_price, spx_put_val, 'SELL', sell_puts_qty)
                     scenario_pnl += calculate_option_pnl(buy_put_price, spy_put_val, 'BUY', buy_puts_qty)
+                    sell_put_settle_val = spx_put_val
+                    buy_put_settle_val = spy_put_val
+                    put_settle_cost = (spx_put_val * sell_puts_qty * 100) - (spy_put_val * buy_puts_qty * 100)
                 else:
                     scenario_pnl += calculate_option_pnl(sell_put_price, spy_put_val, 'SELL', sell_puts_qty)
                     scenario_pnl += calculate_option_pnl(buy_put_price, spx_put_val, 'BUY', buy_puts_qty)
+                    sell_put_settle_val = spy_put_val
+                    buy_put_settle_val = spx_put_val
+                    put_settle_cost = (spy_put_val * sell_puts_qty * 100) - (spx_put_val * buy_puts_qty * 100)
+
+            total_credit = call_credit_total + put_credit_total
+            total_settle_cost = call_settle_cost + put_settle_cost
+
+            breakdown = {
+                'call_credit': call_credit_total,
+                'put_credit': put_credit_total,
+                'total_credit': total_credit,
+                'call_settlement_cost': call_settle_cost,
+                'put_settlement_cost': put_settle_cost,
+                'total_settlement_cost': total_settle_cost,
+            }
 
             if scenario_pnl > best_pnl:
                 best_pnl = scenario_pnl
@@ -118,7 +152,8 @@ def calculate_best_worst_case_with_basis_drift(
                     'net_pnl': scenario_pnl,
                     'spy_price': spy_px,
                     'spx_price': spx_px,
-                    'basis_drift': (basis_mult - 1) * 100  # as percentage
+                    'basis_drift': (basis_mult - 1) * 100,  # as percentage
+                    'breakdown': breakdown,
                 }
 
             if scenario_pnl < worst_pnl:
@@ -127,7 +162,8 @@ def calculate_best_worst_case_with_basis_drift(
                     'net_pnl': scenario_pnl,
                     'spy_price': spy_px,
                     'spx_price': spx_px,
-                    'basis_drift': (basis_mult - 1) * 100  # as percentage
+                    'basis_drift': (basis_mult - 1) * 100,  # as percentage
+                    'breakdown': breakdown,
                 }
 
     return best_scenario, worst_scenario
@@ -187,8 +223,25 @@ st.set_page_config(
 
 st.title("📊 SPY/SPX 0DTE Strategy Calculator")
 
+# Initialize session state early (needed for banner check)
+if 'strikes_just_applied' not in st.session_state:
+    st.session_state.strikes_just_applied = False
+
+# Show banner if strikes were just applied from Scanner
+if st.session_state.strikes_just_applied:
+    applied_spy = st.session_state.get('applied_spy_strike')
+    applied_spx = st.session_state.get('applied_spx_strike')
+    applied_dir = st.session_state.get('applied_direction', '')
+    applied_time = st.session_state.get('applied_entry_time', '')
+
+    st.success(f"✅ **Applied: SPY {applied_spy} / SPX {applied_spx}** | {applied_dir} | Entry Time: {applied_time}")
+    st.info("👆 **Click the 📊 Historical Analysis tab above to analyze this trade!**")
+
+    # Clear the flag after showing
+    st.session_state.strikes_just_applied = False
+
 # Create tabs
-tab1, tab2 = st.tabs(["📊 Historical Analysis", "🔴 Live Paper Trading"])
+tab1, tab2, tab3, tab4 = st.tabs(["📊 Historical Analysis", "🔴 Live Paper Trading", "📈 Price Overlay", "🔍 Strike Scanner"])
 
 # Sidebar configuration
 st.sidebar.header("Configuration")
@@ -268,6 +321,28 @@ st.sidebar.subheader("📥 Data Collection")
 if 'collection_status' not in st.session_state:
     st.session_state.collection_status = {}
 
+# Initialize session state for selected strikes (from Strike Scanner)
+if 'selected_spy_strike' not in st.session_state:
+    st.session_state.selected_spy_strike = None
+if 'selected_spx_strike' not in st.session_state:
+    st.session_state.selected_spx_strike = None
+if 'selected_entry_time' not in st.session_state:
+    st.session_state.selected_entry_time = None
+if 'strikes_just_applied' not in st.session_state:
+    st.session_state.strikes_just_applied = False
+if 'applied_direction' not in st.session_state:
+    st.session_state.applied_direction = None
+if 'applied_spy_strike' not in st.session_state:
+    st.session_state.applied_spy_strike = None
+if 'applied_spx_strike' not in st.session_state:
+    st.session_state.applied_spx_strike = None
+if 'applied_entry_time' not in st.session_state:
+    st.session_state.applied_entry_time = None
+if 'scan_results' not in st.session_state:
+    st.session_state.scan_results = None
+if 'applied_scanner_right' not in st.session_state:
+    st.session_state.applied_scanner_right = None
+
 collection_key = f"collection_{selected_date}"
 
 if st.sidebar.button("🔄 Update Data for Selected Date", use_container_width=True, help="Fetch missing data incrementally (only new bars since last update)"):
@@ -310,7 +385,20 @@ spx_df['time_et'] = spx_df['time'].dt.tz_convert('America/New_York')
 
 # Create time labels for display
 spy_df['time_label'] = spy_df['time_et'].dt.strftime('%I:%M %p ET')
+spy_df['time_short'] = spy_df['time_et'].dt.strftime('%H:%M')  # For matching with scanner results
 time_labels = spy_df['time_label'].tolist()
+time_short_labels = spy_df['time_short'].tolist()
+
+# Initialize widget keys in session state if not present
+if 'entry_time_slider' not in st.session_state:
+    st.session_state.entry_time_slider = 0
+
+# Update entry time from scanner selection BEFORE widget renders
+if st.session_state.selected_entry_time is not None:
+    selected_time = st.session_state.selected_entry_time
+    if selected_time in time_short_labels:
+        st.session_state.entry_time_slider = time_short_labels.index(selected_time)
+    st.session_state.selected_entry_time = None  # Clear after using
 
 # Convert to ET for display
 st.sidebar.subheader("Entry Time")
@@ -318,7 +406,7 @@ entry_time_idx = st.sidebar.slider(
     "Select Entry Time",
     0,
     len(time_labels) - 1,
-    0,  # Default to market open
+    key="entry_time_slider",
     format=""
 )
 
@@ -339,21 +427,37 @@ st.sidebar.subheader("🎯 Strike Configuration")
 entry_spy_open = spy_df.iloc[0]['close']
 entry_spx_open = spx_df.iloc[0]['close']
 
-# Default strikes from best_combo or calculated from current price
-default_spy_strike = best_combo.get('spy_strike', int(round(entry_spy_open)))
-default_spx_strike = best_combo.get('spx_strike', int(round(entry_spx_open / 5) * 5))
+# Strike selection with expanded range to accommodate scanner results
+spy_min_strike = int(entry_spy_open * 0.90)
+spy_max_strike = int(entry_spy_open * 1.10)
+spx_min_strike = int((entry_spx_open * 0.90) / 5) * 5
+spx_max_strike = int((entry_spx_open * 1.10) / 5) * 5
 
-# Strike selection with range based on current prices
-spy_min_strike = int(entry_spy_open * 0.95)
-spy_max_strike = int(entry_spy_open * 1.05)
-spx_min_strike = int((entry_spx_open * 0.95) / 5) * 5
-spx_max_strike = int((entry_spx_open * 1.05) / 5) * 5
+# Initialize widget keys in session state if not present
+if 'spy_strike_input' not in st.session_state:
+    default_spy = best_combo.get('spy_strike', int(round(entry_spy_open)))
+    st.session_state.spy_strike_input = max(spy_min_strike, min(spy_max_strike, default_spy))
+
+if 'spx_strike_input' not in st.session_state:
+    default_spx = best_combo.get('spx_strike', int(round(entry_spx_open / 5) * 5))
+    st.session_state.spx_strike_input = max(spx_min_strike, min(spx_max_strike, default_spx))
+
+# Update strikes from scanner selection BEFORE widgets render
+if st.session_state.selected_spy_strike is not None:
+    new_spy = st.session_state.selected_spy_strike
+    st.session_state.spy_strike_input = max(spy_min_strike, min(spy_max_strike, new_spy))
+    st.session_state.selected_spy_strike = None  # Clear after using
+
+if st.session_state.selected_spx_strike is not None:
+    new_spx = st.session_state.selected_spx_strike
+    st.session_state.spx_strike_input = max(spx_min_strike, min(spx_max_strike, new_spx))
+    st.session_state.selected_spx_strike = None  # Clear after using
 
 spy_strike = st.sidebar.number_input(
     "SPY Strike",
     min_value=spy_min_strike,
     max_value=spy_max_strike,
-    value=default_spy_strike,
+    key="spy_strike_input",
     step=1,
     help="Strike price for SPY options"
 )
@@ -362,7 +466,7 @@ spx_strike = st.sidebar.number_input(
     "SPX Strike",
     min_value=int(spx_min_strike),
     max_value=int(spx_max_strike),
-    value=default_spx_strike,
+    key="spx_strike_input",
     step=5,
     help="Strike price for SPX options (typically increments of 5)"
 )
@@ -413,6 +517,21 @@ put_direction_options = [
 
 default_call_direction = best_combo.get('call_direction', call_direction_options[0])
 default_put_direction = best_combo.get('put_direction', put_direction_options[0])
+
+# Override direction from scanner Apply
+if st.session_state.get('applied_scanner_right') and st.session_state.get('applied_direction'):
+    _scanner_dir = st.session_state.applied_direction  # "Sell SPX" or "Sell SPY"
+    _scanner_right = st.session_state.applied_scanner_right  # "P" or "C"
+    if _scanner_right == 'P':
+        if _scanner_dir == 'Sell SPX':
+            default_put_direction = "Buy SPY, Sell SPX"
+        else:
+            default_put_direction = "Sell SPY, Buy SPX"
+    else:  # Calls
+        if _scanner_dir == 'Sell SPX':
+            default_call_direction = "Sell SPX, Buy SPY"
+        else:
+            default_call_direction = "Buy SPX, Sell SPY"
 
 call_direction = st.sidebar.selectbox(
     "Call Spread Direction",
@@ -521,10 +640,21 @@ with tab1:
             "Puts Only"
         ]
 
+        # Auto-set strategy from scanner Apply
+        _strategy_default_idx = 0
+        if st.session_state.get('applied_scanner_right'):
+            if st.session_state.applied_scanner_right == 'P':
+                _strategy_default_idx = 2  # "Puts Only"
+            else:
+                _strategy_default_idx = 1  # "Calls Only"
+            # Clear after consuming so future user selections aren't overridden
+            st.session_state.applied_scanner_right = None
+            st.session_state.applied_direction = None
+
         selected_strategy = st.selectbox(
             "Select Strategy",
             strategy_options,
-            index=0,
+            index=_strategy_default_idx,
             help="Choose which legs of the strategy to trade"
         )
 
@@ -600,13 +730,13 @@ with tab1:
                 # Prices (use estimated prices that update with slider, strikes, and direction)
                 sell_call_price = st.number_input(
                     f"{sell_label_calls.replace('Calls', '')}@ ${sell_price_calls:.2f}",
-                    0.0, 100.0, float(sell_price_calls), 0.01,
+                    0.0, 500.0, float(sell_price_calls), 0.01,
                     key=f"sell_c_px_{entry_time_idx}_{spy_strike}_{spx_strike}_{call_direction}"
                 )
 
                 buy_call_price = st.number_input(
                     f"{buy_label_calls.replace('Calls', '')}@ ${buy_price_calls:.2f}",
-                    0.0, 100.0, float(buy_price_calls), 0.01,
+                    0.0, 500.0, float(buy_price_calls), 0.01,
                     key=f"buy_c_px_{entry_time_idx}_{spy_strike}_{spx_strike}_{call_direction}"
                 )
 
@@ -649,13 +779,13 @@ with tab1:
                 # Prices (use estimated prices that update with slider, strikes, and direction)
                 sell_put_price = st.number_input(
                     f"{sell_label_puts.replace('Puts', '')}@ ${sell_price_puts:.2f}",
-                    0.0, 100.0, float(sell_price_puts), 0.01,
+                    0.0, 500.0, float(sell_price_puts), 0.01,
                     key=f"sell_p_px_{entry_time_idx}_{spy_strike}_{spx_strike}_{put_direction}"
                 )
 
                 buy_put_price = st.number_input(
                     f"{buy_label_puts.replace('Puts', '')}@ ${buy_price_puts:.2f}",
-                    0.0, 100.0, float(buy_price_puts), 0.01,
+                    0.0, 500.0, float(buy_price_puts), 0.01,
                     key=f"buy_p_px_{entry_time_idx}_{spy_strike}_{spx_strike}_{put_direction}"
                 )
 
@@ -1226,23 +1356,70 @@ with tab1:
             st.caption(f"  SPY: ${best_case['spy_price']:.2f}")
             st.caption(f"  SPX: ${best_case['spx_price']:.2f}")
 
-            # Explain what happens in best case
             pct_move = ((best_case['spy_price'] - entry_spy['close']) / entry_spy['close']) * 100
             direction = "rises" if pct_move > 0 else "falls"
             st.caption(f"  Market {direction} {abs(pct_move):.1f}% from entry")
 
+            # Detailed breakdown
+            if 'breakdown' in best_case:
+                bd = best_case['breakdown']
+                with st.expander("Show P&L breakdown"):
+                    st.markdown("**Credit Received (at entry)**")
+                    if show_calls:
+                        st.caption(f"  Call credit: +${bd['call_credit']:,.2f}")
+                    if show_puts:
+                        st.caption(f"  Put credit: +${bd['put_credit']:,.2f}")
+                    st.caption(f"  **Total credit: +${bd['total_credit']:,.2f}**")
+                    st.markdown("**Settlement Cost (at expiry)**")
+                    if show_calls:
+                        settle_sign = "-" if bd['call_settlement_cost'] > 0 else "+"
+                        st.caption(f"  Call settlement: {settle_sign}${abs(bd['call_settlement_cost']):,.2f}")
+                    if show_puts:
+                        settle_sign = "-" if bd['put_settlement_cost'] > 0 else "+"
+                        st.caption(f"  Put settlement: {settle_sign}${abs(bd['put_settlement_cost']):,.2f}")
+                    settle_sign = "-" if bd['total_settlement_cost'] > 0 else "+"
+                    st.caption(f"  **Total settlement: {settle_sign}${abs(bd['total_settlement_cost']):,.2f}**")
+                    st.markdown("---")
+                    st.markdown(f"**Net P&L = ${bd['total_credit']:,.2f} credit {settle_sign} ${abs(bd['total_settlement_cost']):,.2f} settlement = ${best_case['net_pnl']:,.2f}**")
+
         with col2:
-            st.markdown("### ❌ Worst Case Scenario")
-            st.metric("Maximum Loss", f"${worst_case['net_pnl']:,.2f}",
-                     help="Worst possible outcome at settlement")
+            if worst_case['net_pnl'] >= 0:
+                st.markdown("### ✅ Worst Case Scenario")
+                st.metric("Worst Case P&L", f"+${worst_case['net_pnl']:,.2f}",
+                         help="Worst possible outcome at settlement (still a profit!)")
+            else:
+                st.markdown("### ❌ Worst Case Scenario")
+                st.metric("Worst Case P&L", f"-${abs(worst_case['net_pnl']):,.2f}",
+                         help="Worst possible outcome at settlement (a loss)")
             st.caption(f"**Occurs at:**")
             st.caption(f"  SPY: ${worst_case['spy_price']:.2f}")
             st.caption(f"  SPX: ${worst_case['spx_price']:.2f}")
 
-            # Explain what happens in worst case
             pct_move = ((worst_case['spy_price'] - entry_spy['close']) / entry_spy['close']) * 100
             direction = "rises" if pct_move > 0 else "falls"
             st.caption(f"  Market {direction} {abs(pct_move):.1f}% from entry")
+
+            # Detailed breakdown
+            if 'breakdown' in worst_case:
+                bd = worst_case['breakdown']
+                with st.expander("Show P&L breakdown"):
+                    st.markdown("**Credit Received (at entry)**")
+                    if show_calls:
+                        st.caption(f"  Call credit: +${bd['call_credit']:,.2f}")
+                    if show_puts:
+                        st.caption(f"  Put credit: +${bd['put_credit']:,.2f}")
+                    st.caption(f"  **Total credit: +${bd['total_credit']:,.2f}**")
+                    st.markdown("**Settlement Cost (at expiry)**")
+                    if show_calls:
+                        settle_sign = "-" if bd['call_settlement_cost'] > 0 else "+"
+                        st.caption(f"  Call settlement: {settle_sign}${abs(bd['call_settlement_cost']):,.2f}")
+                    if show_puts:
+                        settle_sign = "-" if bd['put_settlement_cost'] > 0 else "+"
+                        st.caption(f"  Put settlement: {settle_sign}${abs(bd['put_settlement_cost']):,.2f}")
+                    settle_sign = "-" if bd['total_settlement_cost'] > 0 else "+"
+                    st.caption(f"  **Total settlement: {settle_sign}${abs(bd['total_settlement_cost']):,.2f}**")
+                    st.markdown("---")
+                    st.markdown(f"**Net P&L = ${bd['total_credit']:,.2f} credit {settle_sign} ${abs(bd['total_settlement_cost']):,.2f} settlement = ${worst_case['net_pnl']:,.2f}**")
 
         # Risk/Reward Summary
         st.markdown("---")
@@ -1764,3 +1941,692 @@ with tab2:
         import traceback
         with st.expander("Show error details"):
             st.code(traceback.format_exc())
+
+# Tab 3: Price Overlay
+with tab3:
+    st.markdown("**Overlay SPY vs SPX option prices** to find arbitrage opportunities")
+
+    if df_options is None:
+        st.error("❌ Option price database not found. Cannot display overlay chart.")
+        st.info(f"**Required file:** {OPTIONS_FILE}")
+    else:
+        # Calculate open ratio from underlying prices at market open
+        open_spy = spy_df.iloc[0]['close']
+        open_spx = spx_df.iloc[0]['close']
+        open_ratio = open_spx / open_spy
+
+        st.info(f"**Open Ratio:** SPX/SPY = {open_ratio:.4f} (SPY: ${open_spy:.2f}, SPX: ${open_spx:.2f})")
+
+        # Option type selection
+        col1, col2 = st.columns(2)
+        with col1:
+            overlay_right = st.selectbox("Option Type", ["P", "C"], format_func=lambda x: "Puts" if x == "P" else "Calls", key="overlay_right")
+        with col2:
+            st.caption(f"Using strikes: SPY {spy_strike} / SPX {spx_strike}")
+
+        # Get time series data for both options
+        spy_opt_data = df_options[
+            (df_options['symbol'] == 'SPY') &
+            (df_options['strike'] == spy_strike) &
+            (df_options['right'] == overlay_right)
+        ].copy()
+
+        spx_opt_data = df_options[
+            (df_options['symbol'] == 'SPX') &
+            (df_options['strike'] == spx_strike) &
+            (df_options['right'] == overlay_right)
+        ].copy()
+
+        if spy_opt_data.empty:
+            st.warning(f"⚠️ No data found for SPY {spy_strike}{overlay_right}")
+        elif spx_opt_data.empty:
+            st.warning(f"⚠️ No data found for SPX {spx_strike}{overlay_right}")
+        else:
+            # Sort by time
+            spy_opt_data = spy_opt_data.sort_values('time')
+            spx_opt_data = spx_opt_data.sort_values('time')
+
+            # Normalize SPX price by dividing by the open ratio
+            spx_opt_data['normalized_close'] = spx_opt_data['close'] / open_ratio
+
+            # Merge on time to align data points
+            merged = pd.merge(
+                spy_opt_data[['time', 'close']].rename(columns={'close': 'spy_price'}),
+                spx_opt_data[['time', 'normalized_close']].rename(columns={'normalized_close': 'spx_normalized'}),
+                on='time',
+                how='inner'
+            )
+
+            if merged.empty:
+                st.warning("⚠️ No overlapping time periods found between SPY and SPX data")
+            else:
+                # Calculate the spread (gap) - SPX normalized minus SPY
+                # Positive = SPX more expensive (sell SPX, buy SPY)
+                # Negative = SPY more expensive (sell SPY, buy SPX)
+                merged['spread'] = merged['spx_normalized'] - merged['spy_price']
+                merged['spread_pct'] = (merged['spread'] / merged['spy_price']) * 100
+
+                # Convert time to ET for display
+                merged['time_et'] = merged['time'].dt.tz_convert('America/New_York')
+                merged['time_label'] = merged['time_et'].dt.strftime('%H:%M')
+
+                # Find max spread (best arbitrage opportunity)
+                max_spread_idx = merged['spread'].abs().idxmax()
+                max_spread_row = merged.loc[max_spread_idx]
+
+                # Calculate worst-case P&L for each time point
+                # Worst case accounts for basis drift (±0.05%) at settlement
+                basis_drift_pct = 0.0005  # 0.05%
+
+                def calc_worst_case_pnl(row):
+                    """
+                    Calculate worst-case P&L if entering at this time.
+                    Credit = spread * 10 contracts * 100 multiplier
+                    Worst case = credit - max potential settlement cost from basis drift
+                    """
+                    spread = row['spread']
+                    spy_px = row['spy_price']
+                    spx_norm = row['spx_normalized']
+
+                    # Entry credit (10 SPY vs 1 SPX, normalized)
+                    # Positive spread means SPX > SPY, so sell SPX buy SPY
+                    credit = abs(spread) * 10 * 100
+
+                    # Worst case basis drift cost
+                    # If basis drifts against us by 0.05%, the settlement spread changes
+                    # Max adverse drift = open_ratio * basis_drift_pct * strike
+                    max_basis_cost = open_ratio * basis_drift_pct * spy_strike * 10 * 100
+
+                    # Also account for potential moneyness mismatch at settlement
+                    # Using the moneyness difference calculated earlier
+                    moneyness_cost = abs(spy_moneyness_pct - spx_moneyness_pct) / 100 * spy_strike * 10 * 100
+
+                    worst_case = credit - max_basis_cost - moneyness_cost
+                    return worst_case
+
+                merged['worst_case_pnl'] = merged.apply(calc_worst_case_pnl, axis=1)
+
+                # Find best worst-case (highest floor on P&L)
+                best_worst_idx = merged['worst_case_pnl'].idxmax()
+                best_worst_row = merged.loc[best_worst_idx]
+
+                # Display key metrics
+                col1, col2, col3, col4 = st.columns(4)
+                with col1:
+                    st.metric("Max Gap", f"${abs(max_spread_row['spread']):.2f}",
+                             help="Largest price difference - highest potential credit")
+                with col2:
+                    st.metric("Best Worst-Case", f"${best_worst_row['worst_case_pnl']:.2f}",
+                             delta=f"@ {best_worst_row['time_label']}",
+                             help="Entry time where even worst-case scenario is most profitable")
+                with col3:
+                    direction = "SPX > SPY" if max_spread_row['spread'] > 0 else "SPY > SPX"
+                    st.metric("Direction", direction)
+                with col4:
+                    st.metric("Max Gap Time", max_spread_row['time_label'])
+
+                # Create overlay chart with Plotly
+                fig = make_subplots(
+                    rows=2, cols=1,
+                    shared_xaxes=True,
+                    vertical_spacing=0.1,
+                    row_heights=[0.7, 0.3],
+                    subplot_titles=(
+                        f"SPY {spy_strike}{overlay_right} vs SPX {spx_strike}{overlay_right} (Normalized)",
+                        "Spread (SPX - SPY)"
+                    )
+                )
+
+                # SPY price line
+                fig.add_trace(
+                    go.Scatter(
+                        x=merged['time_label'],
+                        y=merged['spy_price'],
+                        mode='lines',
+                        name=f'SPY {spy_strike}{overlay_right}',
+                        line=dict(color='#00D4AA', width=2)
+                    ),
+                    row=1, col=1
+                )
+
+                # SPX normalized price line
+                fig.add_trace(
+                    go.Scatter(
+                        x=merged['time_label'],
+                        y=merged['spx_normalized'],
+                        mode='lines',
+                        name=f'SPX {spx_strike}{overlay_right} (÷{open_ratio:.2f})',
+                        line=dict(color='#FF6B6B', width=2)
+                    ),
+                    row=1, col=1
+                )
+
+                # Spread chart (bottom)
+                colors = ['#00D4AA' if s < 0 else '#FF6B6B' for s in merged['spread']]
+                fig.add_trace(
+                    go.Bar(
+                        x=merged['time_label'],
+                        y=merged['spread'],
+                        name='Spread',
+                        marker_color=colors,
+                        showlegend=False
+                    ),
+                    row=2, col=1
+                )
+
+                # Add zero line to spread chart
+                fig.add_hline(y=0, line_dash="solid", line_color="gray", line_width=1, row=2, col=1)
+
+                # Mark the max spread point with a scatter marker (works with categorical x-axis)
+                fig.add_trace(
+                    go.Scatter(
+                        x=[max_spread_row['time_label']],
+                        y=[max(max_spread_row['spy_price'], max_spread_row['spx_normalized'])],
+                        mode='markers+text',
+                        name='Max Gap',
+                        marker=dict(color='yellow', size=15, symbol='star'),
+                        text=[f"Max Gap: ${abs(max_spread_row['spread']):.2f}"],
+                        textposition='top center',
+                        textfont=dict(color='yellow', size=12),
+                        showlegend=False
+                    ),
+                    row=1, col=1
+                )
+
+                # Mark the best worst-case point with a different star (cyan)
+                # Only add if it's a different point than max spread
+                if best_worst_row['time_label'] != max_spread_row['time_label']:
+                    fig.add_trace(
+                        go.Scatter(
+                            x=[best_worst_row['time_label']],
+                            y=[min(best_worst_row['spy_price'], best_worst_row['spx_normalized'])],
+                            mode='markers+text',
+                            name='Best Worst-Case',
+                            marker=dict(color='cyan', size=15, symbol='star-diamond'),
+                            text=[f"Safe: ${best_worst_row['worst_case_pnl']:.0f}"],
+                            textposition='bottom center',
+                            textfont=dict(color='cyan', size=12),
+                            showlegend=False
+                        ),
+                        row=1, col=1
+                    )
+
+                # Add worst-case P&L line to spread chart (secondary y-axis effect via color)
+                fig.add_trace(
+                    go.Scatter(
+                        x=merged['time_label'],
+                        y=merged['worst_case_pnl'] / 100,  # Scale down to fit on spread chart
+                        mode='lines',
+                        name='Worst-Case P&L (÷100)',
+                        line=dict(color='cyan', width=2, dash='dot'),
+                        opacity=0.7
+                    ),
+                    row=2, col=1
+                )
+
+                fig.update_layout(
+                    height=600,
+                    legend=dict(
+                        orientation="h",
+                        yanchor="bottom",
+                        y=1.02,
+                        xanchor="right",
+                        x=1
+                    ),
+                    hovermode='x unified'
+                )
+
+                fig.update_xaxes(title_text="Time (ET)", row=2, col=1)
+                fig.update_yaxes(title_text="Option Price ($)", row=1, col=1)
+                fig.update_yaxes(title_text="Spread ($)", row=2, col=1)
+
+                st.plotly_chart(fig, use_container_width=True)
+
+                # Trading signal interpretation
+                st.markdown("---")
+                st.subheader("📊 Trading Signal")
+
+                if max_spread_row['spread'] > 0:
+                    signal = "SELL SPX, BUY SPY"
+                    st.success(f"**{signal}** - SPX is overpriced relative to SPY by ${abs(max_spread_row['spread']):.2f}")
+                else:
+                    signal = "SELL SPY, BUY SPX"
+                    st.success(f"**{signal}** - SPY is overpriced relative to SPX by ${abs(max_spread_row['spread']):.2f}")
+
+                # Credit calculation at max spread time
+                spx_price_at_max = spx_opt_data[spx_opt_data['time'] == max_spread_row['time']]['close'].iloc[0]
+                spy_price_at_max = max_spread_row['spy_price']
+
+                # Calculate potential credit (10 SPY vs 1 SPX)
+                if max_spread_row['spread'] > 0:
+                    # Sell 1 SPX, Buy 10 SPY
+                    credit = (spx_price_at_max * 1 * 100) - (spy_price_at_max * 10 * 100)
+                else:
+                    # Sell 10 SPY, Buy 1 SPX
+                    credit = (spy_price_at_max * 10 * 100) - (spx_price_at_max * 1 * 100)
+
+                st.info(f"**Estimated Credit at {max_spread_row['time_label']}:** ${credit:,.2f} (1 SPX @ ${spx_price_at_max:.2f} vs 10 SPY @ ${spy_price_at_max:.2f})")
+
+                # Best worst-case analysis
+                st.markdown("---")
+                st.subheader("🛡️ Safest Entry (Best Worst-Case)")
+
+                spx_price_at_safe = spx_opt_data[spx_opt_data['time'] == best_worst_row['time']]['close'].iloc[0]
+                spy_price_at_safe = best_worst_row['spy_price']
+
+                if best_worst_row['spread'] > 0:
+                    safe_credit = (spx_price_at_safe * 1 * 100) - (spy_price_at_safe * 10 * 100)
+                else:
+                    safe_credit = (spy_price_at_safe * 10 * 100) - (spx_price_at_safe * 1 * 100)
+
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.metric("Entry Time", best_worst_row['time_label'])
+                    st.metric("Entry Credit", f"${safe_credit:,.2f}")
+                with col2:
+                    st.metric("Worst-Case P&L", f"${best_worst_row['worst_case_pnl']:,.2f}",
+                             delta="guaranteed" if best_worst_row['worst_case_pnl'] > 0 else "at risk")
+
+                if best_worst_row['worst_case_pnl'] > 0:
+                    st.success(f"✅ **SAFE ENTRY** at {best_worst_row['time_label']} - Even in worst-case (0.05% basis drift), you profit ${best_worst_row['worst_case_pnl']:,.2f}")
+                else:
+                    st.warning(f"⚠️ Entry at {best_worst_row['time_label']} has worst-case loss of ${abs(best_worst_row['worst_case_pnl']):,.2f}")
+
+                # Legend
+                st.markdown("---")
+                st.caption("**Chart Legend:**")
+                st.caption("⭐ **Yellow Star** = Max Gap (highest credit potential)")
+                st.caption("💎 **Cyan Diamond** = Best Worst-Case (safest entry - profit even if things go wrong)")
+                st.caption("📈 **Cyan Dotted Line** = Worst-case P&L over time (÷100 for scale)")
+
+                # Show data table
+                with st.expander("📋 Raw Data"):
+                    display_df = merged[['time_label', 'spy_price', 'spx_normalized', 'spread', 'spread_pct', 'worst_case_pnl']].copy()
+                    display_df.columns = ['Time', f'SPY {spy_strike}{overlay_right}', f'SPX {spx_strike}{overlay_right} (Norm)', 'Spread ($)', 'Spread (%)', 'Worst-Case P&L']
+                    st.dataframe(display_df, use_container_width=True, hide_index=True)
+
+# Tab 4: Strike Scanner
+with tab4:
+    st.markdown("**Scan all strikes** to find the best arbitrage opportunity")
+
+    if df_options is None:
+        st.error("❌ Option price database not found. Cannot scan strikes.")
+        st.info(f"**Required file:** {OPTIONS_FILE}")
+    else:
+        # Get open ratio
+        open_spy = spy_df.iloc[0]['close']
+        open_spx = spx_df.iloc[0]['close']
+        open_ratio = open_spx / open_spy
+
+        st.info(f"**Open Ratio:** SPX/SPY = {open_ratio:.4f}")
+
+        # Option type selection
+        scanner_right = st.selectbox("Option Type to Scan", ["P", "C"],
+                                     format_func=lambda x: "Puts" if x == "P" else "Calls",
+                                     key="scanner_right")
+
+        # Get all unique strikes from the data
+        spy_strikes_list = sorted(df_options[df_options['symbol'] == 'SPY']['strike'].unique())
+        spx_strikes_list = sorted(df_options[df_options['symbol'] == 'SPX']['strike'].unique())
+
+        st.caption(f"Found {len(spy_strikes_list)} SPY strikes and {len(spx_strikes_list)} SPX strikes")
+
+        if st.button("🔍 Scan All Strike Pairs", type="primary", use_container_width=True):
+            results = []
+            progress_bar = st.progress(0)
+            status_text = st.empty()
+
+            # Find matching strike pairs (SPY strike * ~10 ≈ SPX strike)
+            pairs_to_scan = []
+
+            for spy_s in spy_strikes_list:
+                # Find SPX strikes that are close to SPY * open_ratio
+                target_spx = spy_s * open_ratio
+                for spx_s in spx_strikes_list:
+                    # Allow some tolerance for matching (within 0.5%)
+                    if abs(spx_s - target_spx) / target_spx < 0.005:
+                        pairs_to_scan.append((spy_s, spx_s))
+
+            total_pairs = len(pairs_to_scan)
+            st.caption(f"Found {total_pairs} matching strike pairs to analyze")
+
+            for idx, (spy_s, spx_s) in enumerate(pairs_to_scan):
+                progress_bar.progress((idx + 1) / total_pairs)
+                status_text.text(f"Scanning SPY {spy_s} / SPX {spx_s}...")
+
+                # Get data for this strike pair
+                spy_opt = df_options[
+                    (df_options['symbol'] == 'SPY') &
+                    (df_options['strike'] == spy_s) &
+                    (df_options['right'] == scanner_right)
+                ].copy()
+
+                spx_opt = df_options[
+                    (df_options['symbol'] == 'SPX') &
+                    (df_options['strike'] == spx_s) &
+                    (df_options['right'] == scanner_right)
+                ].copy()
+
+                if spy_opt.empty or spx_opt.empty:
+                    continue
+
+                # Sort and normalize
+                spy_opt = spy_opt.sort_values('time')
+                spx_opt = spx_opt.sort_values('time')
+                spx_opt['normalized_close'] = spx_opt['close'] / open_ratio
+
+                # Merge on time
+                merged_scan = pd.merge(
+                    spy_opt[['time', 'close']].rename(columns={'close': 'spy_price'}),
+                    spx_opt[['time', 'normalized_close']].rename(columns={'normalized_close': 'spx_normalized'}),
+                    on='time',
+                    how='inner'
+                )
+
+                if merged_scan.empty or len(merged_scan) < 5:
+                    continue
+
+                # Calculate spread
+                merged_scan['spread'] = merged_scan['spx_normalized'] - merged_scan['spy_price']
+
+                # Calculate moneyness for this strike pair
+                spy_moneyness_scan = ((spy_s - open_spy) / open_spy) * 100
+                spx_moneyness_scan = ((spx_s - open_spx) / open_spx) * 100
+                moneyness_diff_scan = abs(spy_moneyness_scan - spx_moneyness_scan)
+
+                # Calculate worst-case P&L for each time point
+                basis_drift_pct = 0.0005
+
+                def calc_worst_case_scan(row):
+                    spread_val = row['spread']
+                    credit_val = abs(spread_val) * 10 * 100
+                    max_basis_cost = open_ratio * basis_drift_pct * spy_s * 10 * 100
+                    moneyness_cost = moneyness_diff_scan / 100 * spy_s * 10 * 100
+                    return credit_val - max_basis_cost - moneyness_cost
+
+                merged_scan['worst_case_pnl'] = merged_scan.apply(calc_worst_case_scan, axis=1)
+
+                # Find max spread and best worst-case
+                max_spread_idx_scan = merged_scan['spread'].abs().idxmax()
+                max_spread_row_scan = merged_scan.loc[max_spread_idx_scan]
+
+                best_worst_idx_scan = merged_scan['worst_case_pnl'].idxmax()
+                best_worst_row_scan = merged_scan.loc[best_worst_idx_scan]
+
+                # Get actual SPX price for credit calculation
+                spx_price_at_max_scan = spx_opt[spx_opt['time'] == max_spread_row_scan['time']]['close'].iloc[0]
+                if max_spread_row_scan['spread'] > 0:
+                    credit_scan = (spx_price_at_max_scan * 1 * 100) - (max_spread_row_scan['spy_price'] * 10 * 100)
+                else:
+                    credit_scan = (max_spread_row_scan['spy_price'] * 10 * 100) - (spx_price_at_max_scan * 1 * 100)
+
+                # Convert time to ET for display
+                max_time_et_scan = max_spread_row_scan['time'].tz_convert('America/New_York').strftime('%H:%M')
+                best_worst_time_et_scan = best_worst_row_scan['time'].tz_convert('America/New_York').strftime('%H:%M')
+
+                # Recompute worst case using accurate grid search at the selected time
+                best_worst_time = best_worst_row_scan['time']
+
+                # Look up underlying SPY/SPX prices at the best worst-case time
+                spy_at_time = spy_df.iloc[(spy_df['time'] - best_worst_time).abs().argsort()[:1]]
+                spx_at_time = spx_df.iloc[(spx_df['time'] - best_worst_time).abs().argsort()[:1]]
+                entry_spy_price_scan = spy_at_time['close'].iloc[0]
+                entry_spx_price_scan = spx_at_time['close'].iloc[0]
+
+                # Look up option prices at the best worst-case time
+                spy_opt_at_time = spy_opt.iloc[(spy_opt['time'] - best_worst_time).abs().argsort()[:1]]
+                spx_opt_at_time = spx_opt.iloc[(spx_opt['time'] - best_worst_time).abs().argsort()[:1]]
+                spy_opt_price_scan = spy_opt_at_time['close'].iloc[0]
+                spx_opt_price_scan = spx_opt_at_time['close'].iloc[0]
+
+                # Determine sell/buy setup based on spread direction and scanner_right
+                scan_direction = 'Sell SPX' if max_spread_row_scan['spread'] > 0 else 'Sell SPY'
+
+                # Set up parameters for grid search (only the scanned option type)
+                scan_show_calls = (scanner_right == 'C')
+                scan_show_puts = (scanner_right == 'P')
+
+                if scanner_right == 'P':
+                    if scan_direction == 'Sell SPX':
+                        # Sell SPX put, Buy SPY put -> put_direction = "Buy SPY, Sell SPX"
+                        scan_put_direction = "Buy SPY, Sell SPX"
+                        scan_sell_put_price = spx_opt_price_scan
+                        scan_buy_put_price = spy_opt_price_scan
+                        scan_sell_puts_qty = 1
+                        scan_buy_puts_qty = 10
+                    else:
+                        # Sell SPY put, Buy SPX put -> put_direction = "Sell SPY, Buy SPX"
+                        scan_put_direction = "Sell SPY, Buy SPX"
+                        scan_sell_put_price = spy_opt_price_scan
+                        scan_buy_put_price = spx_opt_price_scan
+                        scan_sell_puts_qty = 10
+                        scan_buy_puts_qty = 1
+                    scan_call_direction = "Sell SPX, Buy SPY"  # unused
+                    scan_sell_call_price = 0.0
+                    scan_buy_call_price = 0.0
+                    scan_sell_calls_qty = 0
+                    scan_buy_calls_qty = 0
+                else:  # Calls
+                    if scan_direction == 'Sell SPX':
+                        # Sell SPX call, Buy SPY call -> call_direction = "Sell SPX, Buy SPY"
+                        scan_call_direction = "Sell SPX, Buy SPY"
+                        scan_sell_call_price = spx_opt_price_scan
+                        scan_buy_call_price = spy_opt_price_scan
+                        scan_sell_calls_qty = 1
+                        scan_buy_calls_qty = 10
+                    else:
+                        # Sell SPY call, Buy SPX call -> call_direction = "Buy SPX, Sell SPY"
+                        scan_call_direction = "Buy SPX, Sell SPY"
+                        scan_sell_call_price = spy_opt_price_scan
+                        scan_buy_call_price = spx_opt_price_scan
+                        scan_sell_calls_qty = 10
+                        scan_buy_calls_qty = 1
+                    scan_put_direction = "Sell SPY, Buy SPX"  # unused
+                    scan_sell_put_price = 0.0
+                    scan_buy_put_price = 0.0
+                    scan_sell_puts_qty = 0
+                    scan_buy_puts_qty = 0
+
+                _, accurate_worst = calculate_best_worst_case_with_basis_drift(
+                    entry_spy_price=entry_spy_price_scan,
+                    entry_spx_price=entry_spx_price_scan,
+                    spy_strike=spy_s,
+                    spx_strike=spx_s,
+                    call_direction=scan_call_direction,
+                    put_direction=scan_put_direction,
+                    sell_call_price=scan_sell_call_price,
+                    buy_call_price=scan_buy_call_price,
+                    sell_calls_qty=scan_sell_calls_qty,
+                    buy_calls_qty=scan_buy_calls_qty,
+                    sell_put_price=scan_sell_put_price,
+                    buy_put_price=scan_buy_put_price,
+                    sell_puts_qty=scan_sell_puts_qty,
+                    buy_puts_qty=scan_buy_puts_qty,
+                    show_calls=scan_show_calls,
+                    show_puts=scan_show_puts,
+                )
+                accurate_worst_pnl = accurate_worst.get('net_pnl', best_worst_row_scan['worst_case_pnl'])
+
+                results.append({
+                    'SPY Strike': int(spy_s),
+                    'SPX Strike': int(spx_s),
+                    'Moneyness': f"{spy_moneyness_scan:+.2f}%",
+                    'Max Gap': abs(max_spread_row_scan['spread']),
+                    'Max Gap $': f"${abs(max_spread_row_scan['spread']):.2f}",
+                    'Max Gap Time': max_time_et_scan,
+                    'Credit': credit_scan,
+                    'Credit $': f"${credit_scan:,.0f}",
+                    'Best Worst-Case': accurate_worst_pnl,
+                    'Best WC $': f"${accurate_worst_pnl:,.0f}",
+                    'Best WC Time': best_worst_time_et_scan,
+                    'Direction': scan_direction
+                })
+
+            progress_bar.empty()
+            status_text.empty()
+
+            if results:
+                df_results = pd.DataFrame(results)
+
+                # Sort by best worst-case (descending)
+                df_results = df_results.sort_values('Best Worst-Case', ascending=False)
+
+                # Store in session state for persistence after Apply
+                st.session_state.scan_results = df_results.to_dict('records')
+
+                # Highlight the best opportunity
+                best_row = df_results.iloc[0]
+
+                st.success(f"🏆 **BEST OPPORTUNITY: SPY {best_row['SPY Strike']} / SPX {best_row['SPX Strike']}**")
+
+                col1, col2, col3, col4 = st.columns(4)
+                with col1:
+                    st.metric("Max Credit", best_row['Credit $'])
+                with col2:
+                    st.metric("Best Worst-Case", best_row['Best WC $'],
+                             delta="SAFE" if best_row['Best Worst-Case'] > 0 else "RISK")
+                with col3:
+                    st.metric("Best Entry Time", best_row['Best WC Time'])
+                with col4:
+                    st.metric("Direction", best_row['Direction'])
+
+                st.markdown("---")
+                st.subheader("📊 All Strike Pairs Ranked by Safety")
+
+                # Show which strikes have guaranteed profit
+                safe_strikes = df_results[df_results['Best Worst-Case'] > 0]
+                if not safe_strikes.empty:
+                    st.success(f"✅ **{len(safe_strikes)} strike pairs have GUARANTEED profit** (worst-case > $0)")
+                else:
+                    st.warning("⚠️ No strike pairs have guaranteed profit with current data")
+
+                # Display interactive table with Apply buttons
+                st.caption("Click **Apply** to load strikes into sidebar and view in Price Overlay tab")
+
+                # Header row
+                header_cols = st.columns([1, 1, 1, 1.2, 1, 1.2, 1, 1, 1])
+                headers = ['SPY', 'SPX', 'Moneyness', 'Credit', 'Gap Time', 'Worst Case', 'WC Time', 'Direction', 'Action']
+                for col, header in zip(header_cols, headers):
+                    col.markdown(f"**{header}**")
+
+                # Data rows with Apply buttons (show top 15)
+                for idx, row in df_results.head(15).iterrows():
+                    cols = st.columns([1, 1, 1, 1.2, 1, 1.2, 1, 1, 1])
+
+                    # Highlight safe rows
+                    is_safe = row['Best Worst-Case'] > 0
+
+                    cols[0].write(f"{row['SPY Strike']}")
+                    cols[1].write(f"{row['SPX Strike']}")
+                    cols[2].write(row['Moneyness'])
+                    cols[3].write(row['Credit $'])
+                    cols[4].write(row['Max Gap Time'])
+
+                    if is_safe:
+                        cols[5].write(f"✅ {row['Best WC $']}")
+                    else:
+                        cols[5].write(f"⚠️ {row['Best WC $']}")
+
+                    cols[6].write(row['Best WC Time'])
+                    cols[7].write(row['Direction'])
+
+                    # Apply button
+                    if cols[8].button("Apply", key=f"apply_{row['SPY Strike']}_{row['SPX Strike']}",
+                                     type="primary" if is_safe else "secondary"):
+                        st.session_state.selected_spy_strike = int(row['SPY Strike'])
+                        st.session_state.selected_spx_strike = int(row['SPX Strike'])
+                        st.session_state.selected_entry_time = row['Best WC Time']  # e.g., "12:50"
+                        st.session_state.strikes_just_applied = True
+                        st.session_state.applied_spy_strike = int(row['SPY Strike'])
+                        st.session_state.applied_spx_strike = int(row['SPX Strike'])
+                        st.session_state.applied_direction = row['Direction']
+                        st.session_state.applied_entry_time = row['Best WC Time']
+                        st.session_state.applied_scanner_right = scanner_right
+                        st.rerun()
+
+                # Show full table in expander
+                with st.expander("📋 View Full Table (all strikes)"):
+                    display_cols = ['SPY Strike', 'SPX Strike', 'Moneyness', 'Credit $', 'Max Gap Time',
+                                   'Best WC $', 'Best WC Time', 'Direction']
+                    st.dataframe(df_results[display_cols], use_container_width=True, hide_index=True)
+
+                st.markdown("---")
+                st.info("💡 After clicking **Apply**, go to the **📊 Historical Analysis** tab to deep dive!")
+
+            else:
+                st.warning("No valid strike pairs found with sufficient data")
+
+        # Display stored results if they exist (after Apply button was clicked)
+        elif st.session_state.get('scan_results') is not None:
+            df_results = pd.DataFrame(st.session_state.scan_results)
+
+            # Show the best opportunity
+            best_row = df_results.iloc[0]
+
+            st.success(f"🏆 **BEST OPPORTUNITY: SPY {best_row['SPY Strike']} / SPX {best_row['SPX Strike']}**")
+
+            col1, col2, col3, col4 = st.columns(4)
+            with col1:
+                st.metric("Max Credit", best_row['Credit $'])
+            with col2:
+                st.metric("Best Worst-Case", best_row['Best WC $'],
+                         delta="SAFE" if best_row['Best Worst-Case'] > 0 else "RISK")
+            with col3:
+                st.metric("Best Entry Time", best_row['Best WC Time'])
+            with col4:
+                st.metric("Direction", best_row['Direction'])
+
+            st.markdown("---")
+            st.subheader("📊 All Strike Pairs Ranked by Safety")
+
+            # Show which strikes have guaranteed profit
+            safe_strikes = df_results[df_results['Best Worst-Case'] > 0]
+            if not safe_strikes.empty:
+                st.success(f"✅ **{len(safe_strikes)} strike pairs have GUARANTEED profit** (worst-case > $0)")
+            else:
+                st.warning("⚠️ No strike pairs have guaranteed profit with current data")
+
+            st.caption("Click **Apply** to load strikes into sidebar and view in Historical Analysis tab")
+
+            # Header row
+            header_cols = st.columns([1, 1, 1, 1.2, 1, 1.2, 1, 1, 1])
+            headers = ['SPY', 'SPX', 'Moneyness', 'Credit', 'Gap Time', 'Worst Case', 'WC Time', 'Direction', 'Action']
+            for col, header in zip(header_cols, headers):
+                col.markdown(f"**{header}**")
+
+            # Data rows with Apply buttons (show top 15)
+            for idx, row in df_results.head(15).iterrows():
+                cols = st.columns([1, 1, 1, 1.2, 1, 1.2, 1, 1, 1])
+
+                is_safe = row['Best Worst-Case'] > 0
+
+                cols[0].write(f"{row['SPY Strike']}")
+                cols[1].write(f"{row['SPX Strike']}")
+                cols[2].write(row['Moneyness'])
+                cols[3].write(row['Credit $'])
+                cols[4].write(row['Max Gap Time'])
+
+                if is_safe:
+                    cols[5].write(f"✅ {row['Best WC $']}")
+                else:
+                    cols[5].write(f"⚠️ {row['Best WC $']}")
+
+                cols[6].write(row['Best WC Time'])
+                cols[7].write(row['Direction'])
+
+                # Apply button
+                if cols[8].button("Apply", key=f"stored_apply_{row['SPY Strike']}_{row['SPX Strike']}",
+                                 type="primary" if is_safe else "secondary"):
+                    st.session_state.selected_spy_strike = int(row['SPY Strike'])
+                    st.session_state.selected_spx_strike = int(row['SPX Strike'])
+                    st.session_state.selected_entry_time = row['Best WC Time']
+                    st.session_state.strikes_just_applied = True
+                    st.session_state.applied_spy_strike = int(row['SPY Strike'])
+                    st.session_state.applied_spx_strike = int(row['SPX Strike'])
+                    st.session_state.applied_direction = row['Direction']
+                    st.session_state.applied_entry_time = row['Best WC Time']
+                    st.session_state.applied_scanner_right = scanner_right
+                    st.rerun()
+
+            st.markdown("---")
+            st.info("💡 After clicking **Apply**, go to the **📊 Historical Analysis** tab to deep dive!")
