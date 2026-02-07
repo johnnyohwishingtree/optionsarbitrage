@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """
-Standard Data Collection Script for SPY/SPX Options Arbitrage
+Standard Data Collection Script for SPY/SPX/XSP Options Arbitrage
 
 Collects full-day historical data:
-- SPY and SPX underlying prices (1-minute bars)
-- SPY and SPX options within ±3% of opening price (1-minute bars)
+- SPY, SPX, and XSP underlying prices (1-minute bars)
+- SPY, SPX, and XSP options within ±3% of opening price (1-minute bars)
 
 Features:
 - Uses 1-minute bars for high-resolution data
@@ -17,9 +17,11 @@ Usage:
     python collect_market_data.py --full             # Force full re-fetch (ignore existing)
     python collect_market_data.py --data-type bidask # Collect BID_ASK data only
     python collect_market_data.py --data-type both   # Collect TRADES + BID_ASK
+    python collect_market_data.py --symbols XSP      # Collect only XSP
+    python collect_market_data.py --symbols SPY,XSP  # Collect SPY + XSP
 
 Output files saved to data/:
-    - underlying_prices_{date}.csv    (SPY/SPX stock prices)
+    - underlying_prices_{date}.csv    (SPY/SPX/XSP underlying prices)
     - options_data_{date}.csv         (all options within ±3% - TRADES)
     - options_bidask_{date}.csv       (bid/ask/midpoint data)
 """
@@ -27,6 +29,7 @@ Output files saved to data/:
 import sys
 import os
 import time
+import asyncio
 import argparse
 from datetime import datetime, timedelta
 import pandas as pd
@@ -51,23 +54,27 @@ def get_last_timestamp(file_path):
         if len(df) == 0:
             return None
 
-        df['time'] = pd.to_datetime(df['time'])
+        # Use utc=True to handle mixed timezones, then convert to tz-naive for comparison
+        df['time'] = pd.to_datetime(df['time'], utc=True)
         return df['time'].max()
     except Exception as e:
         print(f'   Warning: Could not read existing file: {e}')
         return None
 
 
-def collect_daily_data(date_str=None, strike_range_pct=0.03, force_full=False, data_type='trades'):
+def collect_daily_data(date_str=None, strike_range_pct=0.03, force_full=False, data_type='trades', symbols=None):
     """
-    Collect full-day historical data for SPY/SPX stocks and options
+    Collect full-day historical data for stocks and options
 
     Args:
         date_str: Date in YYYYMMDD format (default: today)
         strike_range_pct: Strike range as percentage (default: 0.03 for ±3%)
         force_full: If True, re-fetch all data (ignore existing)
         data_type: 'trades' (default), 'bidask', or 'both'
+        symbols: List of symbols to collect (default: ['SPY', 'SPX'])
     """
+    if symbols is None:
+        symbols = ['SPY', 'SPX', 'XSP']
     if date_str is None:
         date_str = datetime.now().strftime('%Y%m%d')
 
@@ -109,28 +116,28 @@ def collect_daily_data(date_str=None, strike_range_pct=0.03, force_full=False, d
         return
 
     try:
+        # Index-type symbols (use Index contract for underlying)
+        INDEX_SYMBOLS = {'SPX', 'XSP'}
+
         # Step 1: Get current/reference prices to determine strike range
         print('\n1️⃣  Fetching reference prices...')
-        spy_price = client.get_current_price('SPY')
-        spx_price = client.get_current_price('SPX')
-
-        if not spy_price or not spx_price:
-            print('❌ Could not fetch reference prices')
-            return
-
-        print(f'   SPY: ${spy_price:.2f}')
-        print(f'   SPX: ${spx_price:.2f}')
+        ref_prices = {}
+        for sym in symbols:
+            ref_prices[sym] = client.get_current_price(sym)
+            if not ref_prices[sym]:
+                print(f'❌ Could not fetch reference price for {sym}')
+                return
+            print(f'   {sym}: ${ref_prices[sym]:.2f}')
 
         # Step 2: Fetch underlying historical prices
         print('\n2️⃣  Fetching underlying stock prices (1-minute bars)...')
         underlying_data = []
 
-        for symbol in ['SPY', 'SPX']:
+        for symbol in symbols:
             print(f'   Fetching {symbol}...', end=' ')
 
-            # SPX is an index, SPY is a stock
-            if symbol == 'SPX':
-                contract = Index('SPX', 'CBOE', 'USD')
+            if symbol in INDEX_SYMBOLS:
+                contract = Index(symbol, 'CBOE', 'USD')
             else:
                 contract = Stock(symbol, 'SMART', 'USD')
 
@@ -149,7 +156,7 @@ def collect_daily_data(date_str=None, strike_range_pct=0.03, force_full=False, d
             print(f'{len(bars)} bars')
 
             for bar in bars:
-                bar_time = pd.to_datetime(bar.date)
+                bar_time = pd.to_datetime(bar.date, utc=True)
 
                 # Skip if we already have this data (incremental mode)
                 if last_underlying_time and bar_time <= last_underlying_time:
@@ -185,88 +192,193 @@ def collect_daily_data(date_str=None, strike_range_pct=0.03, force_full=False, d
         # Step 3: Calculate strike ranges (±3%)
         print(f'\n3️⃣  Calculating strike ranges (±{strike_range_pct*100:.0f}%)...')
 
-        spy_min = round(spy_price * (1 - strike_range_pct))
-        spy_max = round(spy_price * (1 + strike_range_pct))
-        spy_strikes = list(range(spy_min, spy_max + 1, 1))
+        # Strike config: SPX uses $5 increments, everything else uses $1
+        strike_configs = {}
+        all_contracts = []
+        total_contracts = 0
 
-        spx_min = round((spx_price * (1 - strike_range_pct)) / 5) * 5
-        spx_max = round((spx_price * (1 + strike_range_pct)) / 5) * 5
-        spx_strikes = list(range(int(spx_min), int(spx_max) + 5, 5))
+        for sym in symbols:
+            price = ref_prices[sym]
+            if sym == 'SPX':
+                step = 5
+                s_min = round((price * (1 - strike_range_pct)) / step) * step
+                s_max = round((price * (1 + strike_range_pct)) / step) * step
+                strikes = list(range(int(s_min), int(s_max) + step, step))
+            else:
+                # SPY, XSP, and other $1-increment symbols
+                step = 1
+                s_min = round(price * (1 - strike_range_pct))
+                s_max = round(price * (1 + strike_range_pct))
+                strikes = list(range(s_min, s_max + 1, step))
 
-        print(f'   SPY strikes: {spy_min} - {spy_max} ({len(spy_strikes)} strikes)')
-        print(f'   SPX strikes: {int(spx_min)} - {int(spx_max)} ({len(spx_strikes)} strikes)')
+            strike_configs[sym] = strikes
+            print(f'   {sym} strikes: {s_min} - {s_max} ({len(strikes)} strikes)')
 
-        total_contracts = (len(spy_strikes) + len(spx_strikes)) * 2
+            for strike in strikes:
+                for right in ['C', 'P']:
+                    all_contracts.append((sym, strike, right))
+
+        total_contracts = len(all_contracts)
         print(f'   Total contracts to fetch: {total_contracts}')
 
-        # Build list of all contracts to iterate over
-        all_contracts = []
-        for strike in spy_strikes:
-            for right in ['C', 'P']:
-                all_contracts.append(('SPY', strike, right))
-        for strike in spx_strikes:
-            for right in ['C', 'P']:
-                all_contracts.append(('SPX', strike, right))
+        # Step 4: Fetch options historical data (concurrent batches)
+        data_types_label = ' + '.join(filter(None, ['TRADES' if collect_trades else '', 'BID_ASK' if collect_bidask else '']))
+        # IB allows ~50 concurrent historical data requests; use smaller batches when collecting both types
+        BATCH_SIZE = 20 if (collect_trades and collect_bidask) else 40
+        print(f'\n4️⃣  Fetching {data_types_label} options data (1-minute bars, batch size {BATCH_SIZE})...')
 
-        # Step 4: Fetch TRADES options historical data
-        if collect_trades:
-            print(f'\n4️⃣  Fetching TRADES options data (1-minute bars)...')
-            options_data = []
-            request_count = 0
+        options_data = []
+        bidask_data = []
 
-            for idx, (symbol, strike, right) in enumerate(all_contracts):
-                print(f'   [{idx+1}/{total_contracts}] {symbol} {strike} {right}', end=' ')
+        # Qualify all contracts upfront in batches
+        print(f'   Qualifying {total_contracts} contracts...', end=' ')
+        qualified_contracts = []
+        for i in range(0, total_contracts, BATCH_SIZE):
+            batch = all_contracts[i:i+BATCH_SIZE]
+            contracts = [Option(sym, date_str, strike, right, 'SMART') for sym, strike, right in batch]
+            client.ib.qualifyContracts(*contracts)
+            qualified_contracts.extend(zip(batch, contracts))
+        print('done')
 
-                try:
-                    contract = Option(symbol, date_str, strike, right, 'SMART')
-                    client.ib.qualifyContracts(contract)
+        # Suppress noisy "no data" errors (Error 162) from IB during batch collection
+        _orig_error_handler = client.ib.errorEvent
+        _suppressed_errors = []
+        def _quiet_error(reqId, errorCode, errorString, contract):
+            if errorCode == 162:  # "HMDS query returned no data" — expected for illiquid strikes
+                _suppressed_errors.append((reqId, errorString))
+            else:
+                print(f'   IB Error {errorCode}: {errorString}')
+        client.ib.errorEvent.clear()
+        client.ib.errorEvent += _quiet_error
 
-                    bars = client.ib.reqHistoricalData(
-                        contract,
-                        endDateTime='',
-                        durationStr='1 D',
-                        barSizeSetting='1 min',
-                        whatToShow='TRADES',
-                        useRTH=True,
-                        formatDate=1
-                    )
-                    request_count += 1
+        # Check if async API is available
+        use_async = hasattr(client.ib, 'reqHistoricalDataAsync')
+        if not use_async:
+            print('   ⚠️  Async API not available, falling back to sequential mode')
+            BATCH_SIZE = 1
 
-                    new_bars = 0
+        # Process in batches — fire all requests in a batch concurrently
+        total_batches = (total_contracts + BATCH_SIZE - 1) // BATCH_SIZE
+        error_count = 0
+        for batch_idx in range(total_batches):
+            batch_start = batch_idx * BATCH_SIZE
+            batch_end = min(batch_start + BATCH_SIZE, total_contracts)
+            batch = qualified_contracts[batch_start:batch_end]
+
+            print(f'   Batch {batch_idx+1}/{total_batches} [{batch_start+1}-{batch_end}/{total_contracts}]', end=' ')
+
+            # Fire all TRADES requests concurrently
+            if collect_trades:
+                if use_async:
+                    trade_futures = []
+                    for (sym, strike, right), contract in batch:
+                        trade_futures.append(
+                            client.ib.reqHistoricalDataAsync(
+                                contract, endDateTime='', durationStr='1 D',
+                                barSizeSetting='1 min', whatToShow='TRADES',
+                                useRTH=True, formatDate=1
+                            )
+                        )
+                    trade_results = client.ib.run(asyncio.gather(*trade_futures, return_exceptions=True))
+                else:
+                    # Sequential fallback
+                    trade_results = []
+                    for (sym, strike, right), contract in batch:
+                        try:
+                            bars = client.ib.reqHistoricalData(
+                                contract, endDateTime='', durationStr='1 D',
+                                barSizeSetting='1 min', whatToShow='TRADES',
+                                useRTH=True, formatDate=1
+                            )
+                            trade_results.append(bars)
+                        except Exception as e:
+                            trade_results.append(e)
+                        time.sleep(0.5)
+
+                trade_bar_count = 0
+                for ((sym, strike, right), _), bars in zip(batch, trade_results):
+                    if isinstance(bars, Exception):
+                        error_count += 1
+                        continue
+                    if not bars:
+                        continue
                     for bar in bars:
-                        bar_time = pd.to_datetime(bar.date)
-
+                        bar_time = pd.to_datetime(bar.date, utc=True)
                         if last_options_time and bar_time <= last_options_time:
                             continue
-
                         options_data.append({
-                            'symbol': symbol,
-                            'strike': strike,
-                            'right': right,
-                            'time': bar.date,
-                            'open': bar.open,
-                            'high': bar.high,
-                            'low': bar.low,
-                            'close': bar.close,
-                            'volume': bar.volume
+                            'symbol': sym, 'strike': strike, 'right': right,
+                            'time': bar.date, 'open': bar.open, 'high': bar.high,
+                            'low': bar.low, 'close': bar.close, 'volume': bar.volume
                         })
-                        new_bars += 1
+                        trade_bar_count += 1
 
-                    if new_bars > 0:
-                        print(f'→ {new_bars} new bars')
-                    else:
-                        print(f'→ {len(bars)} total (0 new)')
+                print(f'T:{trade_bar_count}', end=' ')
 
-                    # IB pacing: 0.5s between requests, 10s pause every 50 requests
-                    time.sleep(0.5)
-                    if request_count % 50 == 0:
-                        print(f'   ⏳ Pacing pause (50 requests)...')
-                        time.sleep(10)
+            # Fire all BID_ASK requests concurrently
+            if collect_bidask:
+                if use_async:
+                    ba_futures = []
+                    for (sym, strike, right), contract in batch:
+                        ba_futures.append(
+                            client.ib.reqHistoricalDataAsync(
+                                contract, endDateTime='', durationStr='1 D',
+                                barSizeSetting='1 min', whatToShow='BID_ASK',
+                                useRTH=True, formatDate=1
+                            )
+                        )
+                    ba_results = client.ib.run(asyncio.gather(*ba_futures, return_exceptions=True))
+                else:
+                    ba_results = []
+                    for (sym, strike, right), contract in batch:
+                        try:
+                            bars = client.ib.reqHistoricalData(
+                                contract, endDateTime='', durationStr='1 D',
+                                barSizeSetting='1 min', whatToShow='BID_ASK',
+                                useRTH=True, formatDate=1
+                            )
+                            ba_results.append(bars)
+                        except Exception as e:
+                            ba_results.append(e)
+                        time.sleep(0.5)
 
-                except Exception as e:
-                    print(f'→ Error: {e}')
+                ba_bar_count = 0
+                for ((sym, strike, right), _), bars in zip(batch, ba_results):
+                    if isinstance(bars, Exception):
+                        error_count += 1
+                        continue
+                    if not bars:
+                        continue
+                    for bar in bars:
+                        bar_time = pd.to_datetime(bar.date, utc=True)
+                        if last_bidask_time and bar_time <= last_bidask_time:
+                            continue
+                        bidask_data.append({
+                            'symbol': sym, 'strike': strike, 'right': right,
+                            'time': bar.date, 'bid': bar.low, 'ask': bar.high,
+                            'midpoint': bar.close
+                        })
+                        ba_bar_count += 1
 
-            # Save or append TRADES options data
+                print(f'BA:{ba_bar_count}', end='')
+
+            print()
+
+            # Brief pause between batches to avoid pacing violations
+            if batch_idx < total_batches - 1:
+                time.sleep(2)
+
+        # Restore original error handler
+        client.ib.errorEvent.clear()
+        client.ib.errorEvent = _orig_error_handler
+
+        if error_count > 0:
+            print(f'   ⚠️  {error_count} requests failed (contract not found or pacing violation)')
+        if _suppressed_errors:
+            print(f'   ℹ️  {len(_suppressed_errors)} contracts had no data (illiquid/no trades)')
+
+        # Save or append TRADES options data
+        if collect_trades:
             if options_data:
                 new_df = pd.DataFrame(options_data)
 
@@ -285,64 +397,8 @@ def collect_daily_data(date_str=None, strike_range_pct=0.03, force_full=False, d
             else:
                 print(f'\n   ℹ️  No new TRADES data to add')
 
-        # Step 5: Fetch BID_ASK options historical data
+        # Save or append BID_ASK data
         if collect_bidask:
-            print(f'\n5️⃣  Fetching BID_ASK options data (1-minute bars)...')
-            bidask_data = []
-            request_count = 0
-
-            for idx, (symbol, strike, right) in enumerate(all_contracts):
-                print(f'   [{idx+1}/{total_contracts}] {symbol} {strike} {right} BID_ASK', end=' ')
-
-                try:
-                    contract = Option(symbol, date_str, strike, right, 'SMART')
-                    client.ib.qualifyContracts(contract)
-
-                    bars = client.ib.reqHistoricalData(
-                        contract,
-                        endDateTime='',
-                        durationStr='1 D',
-                        barSizeSetting='1 min',
-                        whatToShow='BID_ASK',
-                        useRTH=True,
-                        formatDate=1
-                    )
-                    request_count += 1
-
-                    new_bars = 0
-                    for bar in bars:
-                        bar_time = pd.to_datetime(bar.date)
-
-                        if last_bidask_time and bar_time <= last_bidask_time:
-                            continue
-
-                        # BID_ASK bars: high=ask, low=bid, close=midpoint
-                        bidask_data.append({
-                            'symbol': symbol,
-                            'strike': strike,
-                            'right': right,
-                            'time': bar.date,
-                            'bid': bar.low,
-                            'ask': bar.high,
-                            'midpoint': bar.close
-                        })
-                        new_bars += 1
-
-                    if new_bars > 0:
-                        print(f'→ {new_bars} new bars')
-                    else:
-                        print(f'→ {len(bars)} total (0 new)')
-
-                    # IB pacing: 0.5s between requests, 10s pause every 50 requests
-                    time.sleep(0.5)
-                    if request_count % 50 == 0:
-                        print(f'   ⏳ Pacing pause (50 requests)...')
-                        time.sleep(10)
-
-                except Exception as e:
-                    print(f'→ Error: {e}')
-
-            # Save or append BID_ASK data
             if bidask_data:
                 new_df = pd.DataFrame(bidask_data)
 
@@ -385,6 +441,8 @@ Examples:
   python collect_market_data.py --range 0.05       # Use ±5% strike range
   python collect_market_data.py --data-type bidask # Collect BID_ASK data only
   python collect_market_data.py --data-type both   # Collect TRADES + BID_ASK data
+  python collect_market_data.py --symbols XSP      # Collect only XSP
+  python collect_market_data.py --symbols SPY,XSP  # Collect SPY + XSP
 
 Incremental Mode (default):
   - Script checks existing data files
@@ -427,7 +485,19 @@ Full Mode (--full flag):
         help='Data type to collect: trades (default), bidask, or both'
     )
 
+    parser.add_argument(
+        '--symbols',
+        type=str,
+        default=None,
+        help='Comma-separated symbols to collect (default: SPY,SPX,XSP). Example: --symbols SPY,XSP'
+    )
+
     args = parser.parse_args()
+
+    # Parse symbols list
+    symbols_list = None
+    if args.symbols:
+        symbols_list = [s.strip().upper() for s in args.symbols.split(',')]
 
     # Ensure data directory exists
     os.makedirs('data', exist_ok=True)
@@ -437,7 +507,8 @@ Full Mode (--full flag):
         date_str=args.date,
         strike_range_pct=args.range,
         force_full=args.full,
-        data_type=args.data_type
+        data_type=args.data_type,
+        symbols=symbols_list
     )
 
 

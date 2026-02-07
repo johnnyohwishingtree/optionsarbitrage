@@ -110,9 +110,9 @@ class IBKRClient:
     def get_current_price(self, symbol: str) -> Optional[float]:
         """Get current market price for a symbol"""
         try:
-            if symbol == 'SPX':
-                # SPX is an index
-                contract = Contract(symbol='SPX', secType='IND', exchange='CBOE', currency='USD')
+            if symbol in ('SPX', 'XSP'):
+                # SPX and XSP are indices on CBOE
+                contract = Contract(symbol=symbol, secType='IND', exchange='CBOE', currency='USD')
             else:
                 # SPY is a stock
                 contract = Stock(symbol, 'SMART', 'USD')
