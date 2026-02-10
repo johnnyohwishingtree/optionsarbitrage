@@ -353,8 +353,12 @@ def get_option_price_with_liquidity(df_options, df_bidask, symbol, strike, right
                 result['spread_pct'] = (ask - bid) / midpoint * 100 if midpoint > 0 else None
 
             if result['volume'] == 0:
-                result['is_stale'] = True
-                result['liquidity_warning'] = f"STALE (vol=0), bid/ask={bid:.2f}/{ask:.2f}"
+                if bid > 0 and ask > 0:
+                    # Valid bid/ask quotes exist — price is usable, just no trades
+                    result['liquidity_warning'] = f"No trades (vol=0), bid/ask={bid:.2f}/{ask:.2f}"
+                else:
+                    result['is_stale'] = True
+                    result['liquidity_warning'] = f"STALE (vol=0, no valid quotes)"
             elif result['spread_pct'] is not None and result['spread_pct'] > 20:
                 result['liquidity_warning'] = f"Wide spread: {result['spread_pct']:.1f}%"
 

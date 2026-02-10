@@ -119,19 +119,10 @@ def collect_daily_data(date_str=None, strike_range_pct=0.03, force_full=False, d
         # Index-type symbols (use Index contract for underlying)
         INDEX_SYMBOLS = {'SPX', 'XSP'}
 
-        # Step 1: Get current/reference prices to determine strike range
-        print('\n1️⃣  Fetching reference prices...')
-        ref_prices = {}
-        for sym in symbols:
-            ref_prices[sym] = client.get_current_price(sym)
-            if not ref_prices[sym]:
-                print(f'❌ Could not fetch reference price for {sym}')
-                return
-            print(f'   {sym}: ${ref_prices[sym]:.2f}')
-
-        # Step 2: Fetch underlying historical prices
-        print('\n2️⃣  Fetching underlying stock prices (1-minute bars)...')
+        # Step 1: Fetch underlying historical prices (done first so we can derive reference prices)
+        print('\n1️⃣  Fetching underlying stock prices (1-minute bars)...')
         underlying_data = []
+        _underlying_bars = {}  # sym -> list of bars (for reference price fallback)
 
         for symbol in symbols:
             print(f'   Fetching {symbol}...', end=' ')
@@ -154,6 +145,7 @@ def collect_daily_data(date_str=None, strike_range_pct=0.03, force_full=False, d
             )
 
             print(f'{len(bars)} bars')
+            _underlying_bars[symbol] = bars
 
             for bar in bars:
                 bar_time = pd.to_datetime(bar.date, utc=True)
@@ -189,6 +181,46 @@ def collect_daily_data(date_str=None, strike_range_pct=0.03, force_full=False, d
         else:
             print(f'   ℹ️  No new underlying data to add')
 
+        # Step 2: Determine reference prices for strike range calculation
+        # Use live market data if available, otherwise fall back to underlying bar data
+        print('\n2️⃣  Determining reference prices for strike ranges...')
+        ref_prices = {}
+
+        # Try live/delayed market data first (parallel — single sleep for all symbols)
+        _ref_contracts = {}
+        for sym in symbols:
+            if sym in INDEX_SYMBOLS:
+                c = Index(sym, 'CBOE', 'USD')
+            else:
+                c = Stock(sym, 'SMART', 'USD')
+            client.ib.qualifyContracts(c)
+            _ref_contracts[sym] = c
+
+        _ref_tickers = {sym: client.ib.reqMktData(c) for sym, c in _ref_contracts.items()}
+        client.ib.sleep(3)  # Single wait for all symbols
+
+        for sym in symbols:
+            ticker = _ref_tickers[sym]
+            price = ticker.marketPrice()
+            if not price or price != price or price <= 0:  # NaN check
+                price = ticker.last if (ticker.last and ticker.last == ticker.last and ticker.last > 0) else None
+            if not price or price <= 0:
+                price = ticker.close if (ticker.close and ticker.close == ticker.close and ticker.close > 0) else None
+
+            # Fallback: use the first bar's close from the underlying data we just fetched
+            if not price or price <= 0:
+                bars = _underlying_bars.get(sym, [])
+                if bars:
+                    price = bars[0].close
+                    print(f'   {sym}: ${price:.2f} (from historical bars)')
+                else:
+                    print(f'❌ Could not determine reference price for {sym}')
+                    return
+            else:
+                print(f'   {sym}: ${price:.2f}')
+
+            ref_prices[sym] = price
+
         # Step 3: Calculate strike ranges (±3%)
         print(f'\n3️⃣  Calculating strike ranges (±{strike_range_pct*100:.0f}%)...')
 
@@ -223,18 +255,23 @@ def collect_daily_data(date_str=None, strike_range_pct=0.03, force_full=False, d
 
         # Step 4: Fetch options historical data (concurrent batches)
         data_types_label = ' + '.join(filter(None, ['TRADES' if collect_trades else '', 'BID_ASK' if collect_bidask else '']))
-        # IB allows ~50 concurrent historical data requests; use smaller batches when collecting both types
-        BATCH_SIZE = 20 if (collect_trades and collect_bidask) else 40
+        # IB allows ~50 concurrent historical data requests
+        # When collecting both types, fire TRADES + BID_ASK together (N contracts × 2 = 2N requests)
+        if collect_trades and collect_bidask:
+            BATCH_SIZE = 22  # 22 × 2 = 44 concurrent requests (under ~50 limit)
+        else:
+            BATCH_SIZE = 45
         print(f'\n4️⃣  Fetching {data_types_label} options data (1-minute bars, batch size {BATCH_SIZE})...')
 
         options_data = []
         bidask_data = []
 
-        # Qualify all contracts upfront in batches
+        # Qualify all contracts upfront in larger batches (qualification is lightweight)
+        QUAL_BATCH = 50
         print(f'   Qualifying {total_contracts} contracts...', end=' ')
         qualified_contracts = []
-        for i in range(0, total_contracts, BATCH_SIZE):
-            batch = all_contracts[i:i+BATCH_SIZE]
+        for i in range(0, total_contracts, QUAL_BATCH):
+            batch = all_contracts[i:i+QUAL_BATCH]
             contracts = [Option(sym, date_str, strike, right, 'SMART') for sym, strike, right in batch]
             client.ib.qualifyContracts(*contracts)
             qualified_contracts.extend(zip(batch, contracts))
@@ -257,7 +294,7 @@ def collect_daily_data(date_str=None, strike_range_pct=0.03, force_full=False, d
             print('   ⚠️  Async API not available, falling back to sequential mode')
             BATCH_SIZE = 1
 
-        # Process in batches — fire all requests in a batch concurrently
+        # Process in batches — fire ALL request types in a single gather per batch
         total_batches = (total_contracts + BATCH_SIZE - 1) // BATCH_SIZE
         error_count = 0
         for batch_idx in range(total_batches):
@@ -267,69 +304,99 @@ def collect_daily_data(date_str=None, strike_range_pct=0.03, force_full=False, d
 
             print(f'   Batch {batch_idx+1}/{total_batches} [{batch_start+1}-{batch_end}/{total_contracts}]', end=' ')
 
-            # Fire all TRADES requests concurrently
-            if collect_trades:
-                if use_async:
-                    trade_futures = []
-                    for (sym, strike, right), contract in batch:
-                        trade_futures.append(
+            if use_async:
+                # Fire TRADES and BID_ASK together in a single asyncio.gather
+                futures = []
+                request_meta = []  # Track (type, sym, strike, right) per future
+                for (sym, strike, right), contract in batch:
+                    if collect_trades:
+                        futures.append(
                             client.ib.reqHistoricalDataAsync(
                                 contract, endDateTime='', durationStr='1 D',
                                 barSizeSetting='1 min', whatToShow='TRADES',
                                 useRTH=True, formatDate=1
                             )
                         )
-                    trade_results = client.ib.run(asyncio.gather(*trade_futures, return_exceptions=True))
-                else:
-                    # Sequential fallback
-                    trade_results = []
-                    for (sym, strike, right), contract in batch:
-                        try:
-                            bars = client.ib.reqHistoricalData(
+                        request_meta.append(('T', sym, strike, right))
+                    if collect_bidask:
+                        futures.append(
+                            client.ib.reqHistoricalDataAsync(
                                 contract, endDateTime='', durationStr='1 D',
-                                barSizeSetting='1 min', whatToShow='TRADES',
+                                barSizeSetting='1 min', whatToShow='BID_ASK',
                                 useRTH=True, formatDate=1
                             )
-                            trade_results.append(bars)
-                        except Exception as e:
-                            trade_results.append(e)
-                        time.sleep(0.5)
+                        )
+                        request_meta.append(('BA', sym, strike, right))
+
+                results = client.ib.run(asyncio.gather(*futures, return_exceptions=True))
 
                 trade_bar_count = 0
-                for ((sym, strike, right), _), bars in zip(batch, trade_results):
+                ba_bar_count = 0
+                for meta, bars in zip(request_meta, results):
+                    req_type, sym, strike, right = meta
                     if isinstance(bars, Exception):
                         error_count += 1
                         continue
                     if not bars:
                         continue
-                    for bar in bars:
-                        bar_time = pd.to_datetime(bar.date, utc=True)
-                        if last_options_time and bar_time <= last_options_time:
-                            continue
-                        options_data.append({
-                            'symbol': sym, 'strike': strike, 'right': right,
-                            'time': bar.date, 'open': bar.open, 'high': bar.high,
-                            'low': bar.low, 'close': bar.close, 'volume': bar.volume
-                        })
-                        trade_bar_count += 1
+                    if req_type == 'T':
+                        for bar in bars:
+                            bar_time = pd.to_datetime(bar.date, utc=True)
+                            if last_options_time and bar_time <= last_options_time:
+                                continue
+                            options_data.append({
+                                'symbol': sym, 'strike': strike, 'right': right,
+                                'time': bar.date, 'open': bar.open, 'high': bar.high,
+                                'low': bar.low, 'close': bar.close, 'volume': bar.volume
+                            })
+                            trade_bar_count += 1
+                    else:  # BA
+                        for bar in bars:
+                            bar_time = pd.to_datetime(bar.date, utc=True)
+                            if last_bidask_time and bar_time <= last_bidask_time:
+                                continue
+                            bidask_data.append({
+                                'symbol': sym, 'strike': strike, 'right': right,
+                                'time': bar.date, 'bid': bar.low, 'ask': bar.high,
+                                'midpoint': bar.close
+                            })
+                            ba_bar_count += 1
 
-                print(f'T:{trade_bar_count}', end=' ')
-
-            # Fire all BID_ASK requests concurrently
-            if collect_bidask:
-                if use_async:
-                    ba_futures = []
+                if collect_trades:
+                    print(f'T:{trade_bar_count}', end=' ')
+                if collect_bidask:
+                    print(f'BA:{ba_bar_count}', end='')
+            else:
+                # Sequential fallback
+                if collect_trades:
+                    trade_bar_count = 0
                     for (sym, strike, right), contract in batch:
-                        ba_futures.append(
-                            client.ib.reqHistoricalDataAsync(
+                        try:
+                            bars = client.ib.reqHistoricalData(
                                 contract, endDateTime='', durationStr='1 D',
-                                barSizeSetting='1 min', whatToShow='BID_ASK',
+                                barSizeSetting='1 min', whatToShow='TRADES',
                                 useRTH=True, formatDate=1
                             )
-                        )
-                    ba_results = client.ib.run(asyncio.gather(*ba_futures, return_exceptions=True))
-                else:
-                    ba_results = []
+                        except Exception as e:
+                            bars = e
+                        if isinstance(bars, Exception):
+                            error_count += 1
+                        elif bars:
+                            for bar in bars:
+                                bar_time = pd.to_datetime(bar.date, utc=True)
+                                if last_options_time and bar_time <= last_options_time:
+                                    continue
+                                options_data.append({
+                                    'symbol': sym, 'strike': strike, 'right': right,
+                                    'time': bar.date, 'open': bar.open, 'high': bar.high,
+                                    'low': bar.low, 'close': bar.close, 'volume': bar.volume
+                                })
+                                trade_bar_count += 1
+                        time.sleep(0.5)
+                    print(f'T:{trade_bar_count}', end=' ')
+
+                if collect_bidask:
+                    ba_bar_count = 0
                     for (sym, strike, right), contract in batch:
                         try:
                             bars = client.ib.reqHistoricalData(
@@ -337,36 +404,29 @@ def collect_daily_data(date_str=None, strike_range_pct=0.03, force_full=False, d
                                 barSizeSetting='1 min', whatToShow='BID_ASK',
                                 useRTH=True, formatDate=1
                             )
-                            ba_results.append(bars)
                         except Exception as e:
-                            ba_results.append(e)
+                            bars = e
+                        if isinstance(bars, Exception):
+                            error_count += 1
+                        elif bars:
+                            for bar in bars:
+                                bar_time = pd.to_datetime(bar.date, utc=True)
+                                if last_bidask_time and bar_time <= last_bidask_time:
+                                    continue
+                                bidask_data.append({
+                                    'symbol': sym, 'strike': strike, 'right': right,
+                                    'time': bar.date, 'bid': bar.low, 'ask': bar.high,
+                                    'midpoint': bar.close
+                                })
+                                ba_bar_count += 1
                         time.sleep(0.5)
-
-                ba_bar_count = 0
-                for ((sym, strike, right), _), bars in zip(batch, ba_results):
-                    if isinstance(bars, Exception):
-                        error_count += 1
-                        continue
-                    if not bars:
-                        continue
-                    for bar in bars:
-                        bar_time = pd.to_datetime(bar.date, utc=True)
-                        if last_bidask_time and bar_time <= last_bidask_time:
-                            continue
-                        bidask_data.append({
-                            'symbol': sym, 'strike': strike, 'right': right,
-                            'time': bar.date, 'bid': bar.low, 'ask': bar.high,
-                            'midpoint': bar.close
-                        })
-                        ba_bar_count += 1
-
-                print(f'BA:{ba_bar_count}', end='')
+                    print(f'BA:{ba_bar_count}', end='')
 
             print()
 
             # Brief pause between batches to avoid pacing violations
             if batch_idx < total_batches - 1:
-                time.sleep(2)
+                time.sleep(1)
 
         # Restore original error handler
         client.ib.errorEvent.clear()

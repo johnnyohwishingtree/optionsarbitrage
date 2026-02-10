@@ -1,0 +1,47 @@
+%% Module Dependencies — Import/dependency graph
+%% Updated: 2026-02-07
+
+graph LR
+    %% Modules
+    MOD_collect["collect_market_data.py"]:::module
+    MOD_strategy["strategy_calculator_simple.py"]:::module
+    MOD_ibkrClient["src/broker/ibkr_client.py"]:::module
+
+    %% External libraries
+    LIB_ibAsync["ib_async / ib_insync"]:::external
+    LIB_pandas["pandas"]:::external
+    LIB_numpy["numpy"]:::external
+    LIB_streamlit["streamlit"]:::external
+    LIB_plotly["plotly"]:::external
+    LIB_asyncio["asyncio"]:::external
+
+    %% Test files
+    TEST_pnl["tests/test_pnl_calculations.py"]:::function
+    TEST_consistency["tests/test_worst_case_consistency.py"]:::function
+    TEST_lockstep["tests/test_worst_case_lockstep.py"]:::function
+
+    %% Module → Module imports
+    MOD_collect -->|"imports IBKRClient"| MOD_ibkrClient
+    MOD_strategy -->|"imports IBKRClient"| MOD_ibkrClient
+
+    %% Module → Library imports
+    MOD_ibkrClient --> LIB_ibAsync
+    MOD_collect --> LIB_ibAsync
+    MOD_collect --> LIB_pandas
+    MOD_collect --> LIB_asyncio
+    MOD_strategy --> LIB_pandas
+    MOD_strategy --> LIB_numpy
+    MOD_strategy --> LIB_streamlit
+    MOD_strategy --> LIB_plotly
+
+    %% Test → Module dependencies (dashed)
+    TEST_pnl -.->|"imports functions"| MOD_strategy
+    TEST_consistency -.->|"imports functions"| MOD_strategy
+    TEST_lockstep -.->|"imports functions"| MOD_strategy
+
+    %% Style definitions
+    classDef external  fill:#f9d0d0,stroke:#c0392b,color:#333
+    classDef module    fill:#d0e0f9,stroke:#2471a3,color:#333
+    classDef function  fill:#d0f9d0,stroke:#27ae60,color:#333
+    classDef data      fill:#f9e4d0,stroke:#e67e22,color:#333
+    classDef tab       fill:#e0d0f9,stroke:#8e44ad,color:#333

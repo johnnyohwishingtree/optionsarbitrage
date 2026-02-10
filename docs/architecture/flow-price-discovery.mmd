@@ -1,0 +1,56 @@
+%% Flow: Price Discovery — Liquidity-aware price lookup
+%% Updated: 2026-02-07
+%% Entry: FN_getPriceWithLiquidity(df_options, df_bidask, symbol, strike, right, entry_time)
+
+flowchart TD
+    INPUT["Input: symbol, strike, right, entry_time\ndf_options (TRADES), df_bidask (BID_ASK)"]:::function
+
+    FILTER_TRADES["Filter TRADES DataFrame\nMatch symbol + strike + right"]:::function
+
+    PREFER_LIQUID["FN_findNearestRow\nPrefer bars with volume > 0\nFind nearest bar at/after entry_time"]:::function
+
+    HAS_VOLUME{"volume > 0?"}:::function
+
+    STALE_PATH["Mark is_stale = true\nSet liquidity_warning:\n'No recent trades'"]:::function
+
+    CHECK_BIDASK{"BID_ASK data\navailable?"}:::function
+
+    USE_TRADES["Use TRADES open price\nprice_source = 'trade'"]:::function
+
+    FILTER_BIDASK["Filter BID_ASK DataFrame\nRestrict to times where\nTRADES had volume > 0"]:::function
+
+    FIND_BIDASK["FN_findNearestRow on BID_ASK\nGet bid, ask, midpoint"]:::function
+
+    USE_MIDPOINT["Use midpoint as price\nprice_source = 'midpoint'"]:::function
+
+    CALC_SPREAD["Calculate spread metrics\nspread = ask - bid\nspread_pct = spread / midpoint"]:::function
+
+    WIDE_CHECK{"spread_pct > 20%?"}:::function
+
+    WIDE_WARN["Add liquidity_warning:\n'Wide bid-ask spread'"]:::function
+
+    RESULT["Return dict:\nprice, price_source, volume\nbid, ask, spread, spread_pct\nis_stale, liquidity_warning"]:::function
+
+    INPUT --> FILTER_TRADES
+    FILTER_TRADES --> PREFER_LIQUID
+    PREFER_LIQUID --> HAS_VOLUME
+    HAS_VOLUME -->|"no"| STALE_PATH
+    STALE_PATH --> CHECK_BIDASK
+    HAS_VOLUME -->|"yes"| CHECK_BIDASK
+    CHECK_BIDASK -->|"no"| USE_TRADES
+    CHECK_BIDASK -->|"yes"| FILTER_BIDASK
+    FILTER_BIDASK --> FIND_BIDASK
+    FIND_BIDASK --> USE_MIDPOINT
+    USE_MIDPOINT --> CALC_SPREAD
+    CALC_SPREAD --> WIDE_CHECK
+    WIDE_CHECK -->|"yes"| WIDE_WARN
+    WIDE_WARN --> RESULT
+    WIDE_CHECK -->|"no"| RESULT
+    USE_TRADES --> RESULT
+
+    %% Style definitions
+    classDef external  fill:#f9d0d0,stroke:#c0392b,color:#333
+    classDef module    fill:#d0e0f9,stroke:#2471a3,color:#333
+    classDef function  fill:#d0f9d0,stroke:#27ae60,color:#333
+    classDef data      fill:#f9e4d0,stroke:#e67e22,color:#333
+    classDef tab       fill:#e0d0f9,stroke:#8e44ad,color:#333

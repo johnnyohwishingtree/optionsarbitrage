@@ -1,0 +1,63 @@
+%% System Overview — Top-level architecture
+%% Updated: 2026-02-07
+
+graph TD
+    %% External systems
+    EXT_ibGateway["IB Gateway\n127.0.0.1:4002"]:::external
+    EXT_browser["Browser\n(Streamlit UI)"]:::external
+
+    %% Data collection module
+    MOD_collect["collect_market_data.py\nData Collection CLI"]:::module
+
+    %% Broker client
+    MOD_ibkrClient["src/broker/ibkr_client.py"]:::module
+    CLS_IBKRClient["IBKRClient"]:::module
+
+    %% Strategy calculator (Streamlit app)
+    MOD_strategy["strategy_calculator_simple.py\nStreamlit Dashboard"]:::module
+
+    %% Data stores
+    DATA_underlying["underlying_prices_{date}.csv"]:::data
+    DATA_optTrades["options_data_{date}.csv"]:::data
+    DATA_optBidask["options_bidask_{date}.csv"]:::data
+
+    %% Streamlit tabs subgraph
+    subgraph StreamlitTabs["Streamlit Tabs"]
+        TAB_historical["Tab 1: Historical Analysis"]:::tab
+        TAB_liveTrade["Tab 2: Live Paper Trading"]:::tab
+        TAB_priceOverlay["Tab 3: Price Overlay"]:::tab
+        TAB_divergence["Tab 4: Underlying Divergence"]:::tab
+        TAB_scanner["Tab 5: Strike Scanner"]:::tab
+    end
+
+    %% Edges: Data collection
+    EXT_ibGateway -->|"historical bars API"| MOD_collect
+    MOD_collect --> CLS_IBKRClient
+    CLS_IBKRClient --> MOD_ibkrClient
+    MOD_collect ==>|"writes CSVs"| DATA_underlying
+    MOD_collect ==>|"writes CSVs"| DATA_optTrades
+    MOD_collect ==>|"writes CSVs"| DATA_optBidask
+
+    %% Edges: Strategy reads data
+    DATA_underlying ==>|"loads"| MOD_strategy
+    DATA_optTrades ==>|"loads"| MOD_strategy
+    DATA_optBidask ==>|"loads"| MOD_strategy
+
+    %% Edges: Strategy hosts tabs
+    MOD_strategy --> StreamlitTabs
+    EXT_browser -->|"HTTP"| MOD_strategy
+
+    %% Edges: Live trading tab uses IB
+    TAB_liveTrade -->|"positions, orders"| CLS_IBKRClient
+    CLS_IBKRClient -->|"API calls"| EXT_ibGateway
+
+    %% Edges: Scanner feeds into historical
+    TAB_scanner -->|"apply strikes/time"| TAB_historical
+    TAB_priceOverlay -->|"apply best opportunity"| TAB_historical
+
+    %% Style definitions
+    classDef external  fill:#f9d0d0,stroke:#c0392b,color:#333
+    classDef module    fill:#d0e0f9,stroke:#2471a3,color:#333
+    classDef function  fill:#d0f9d0,stroke:#27ae60,color:#333
+    classDef data      fill:#f9e4d0,stroke:#e67e22,color:#333
+    classDef tab       fill:#e0d0f9,stroke:#8e44ad,color:#333

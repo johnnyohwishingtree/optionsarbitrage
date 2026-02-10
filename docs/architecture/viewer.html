@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Architecture Diagrams</title>
+    <script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+    <style>
+        :root {
+            --bg: #ffffff;
+            --bg-sidebar: #f5f5f5;
+            --text: #333333;
+            --text-muted: #666666;
+            --border: #dddddd;
+            --accent: #2471a3;
+            --accent-hover: #1a5276;
+            --active-bg: #d0e0f9;
+        }
+
+        [data-theme="dark"] {
+            --bg: #1a1a2e;
+            --bg-sidebar: #16213e;
+            --text: #e0e0e0;
+            --text-muted: #aaaaaa;
+            --border: #333355;
+            --accent: #5dade2;
+            --accent-hover: #85c1e9;
+            --active-bg: #1a3a5c;
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            display: flex;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        .sidebar {
+            width: 280px;
+            min-width: 280px;
+            background: var(--bg-sidebar);
+            border-right: 1px solid var(--border);
+            display: flex;
+            flex-direction: column;
+            padding: 20px 0;
+            overflow-y: auto;
+        }
+
+        .sidebar h1 {
+            font-size: 16px;
+            padding: 0 20px 16px;
+            border-bottom: 1px solid var(--border);
+            margin-bottom: 12px;
+        }
+
+        .sidebar h2 {
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: var(--text-muted);
+            padding: 12px 20px 6px;
+        }
+
+        .nav-item {
+            padding: 8px 20px;
+            cursor: pointer;
+            font-size: 14px;
+            border-left: 3px solid transparent;
+            transition: all 0.15s;
+        }
+
+        .nav-item:hover {
+            background: var(--active-bg);
+        }
+
+        .nav-item.active {
+            background: var(--active-bg);
+            border-left-color: var(--accent);
+            font-weight: 600;
+        }
+
+        .nav-item .desc {
+            font-size: 11px;
+            color: var(--text-muted);
+            margin-top: 2px;
+        }
+
+        .controls {
+            margin-top: auto;
+            padding: 16px 20px;
+            border-top: 1px solid var(--border);
+            display: flex;
+            gap: 8px;
+        }
+
+        .controls button {
+            flex: 1;
+            padding: 6px 12px;
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            background: var(--bg);
+            color: var(--text);
+            cursor: pointer;
+            font-size: 12px;
+        }
+
+        .controls button:hover {
+            border-color: var(--accent);
+            color: var(--accent);
+        }
+
+        .main {
+            flex: 1;
+            overflow: auto;
+            padding: 24px;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .main h2 {
+            font-size: 20px;
+            margin-bottom: 4px;
+        }
+
+        .main .meta {
+            font-size: 12px;
+            color: var(--text-muted);
+            margin-bottom: 16px;
+        }
+
+        #diagram-container {
+            flex: 1;
+            overflow: auto;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 24px;
+            background: var(--bg);
+        }
+
+        #diagram-container svg {
+            max-width: 100%;
+            height: auto;
+        }
+
+        .error {
+            color: #c0392b;
+            padding: 20px;
+            font-family: monospace;
+            white-space: pre-wrap;
+        }
+
+        .loading {
+            color: var(--text-muted);
+            padding: 40px;
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+    <nav class="sidebar">
+        <h1>Architecture Diagrams</h1>
+
+        <h2>Overview</h2>
+        <div class="nav-item active" data-file="system-overview.mmd">
+            System Overview
+            <div class="desc">Modules, data, IB Gateway, tabs</div>
+        </div>
+        <div class="nav-item" data-file="module-dependencies.mmd">
+            Module Dependencies
+            <div class="desc">Import/dependency graph</div>
+        </div>
+        <div class="nav-item" data-file="data-model.mmd">
+            Data Model
+            <div class="desc">CSV schemas (ER diagram)</div>
+        </div>
+
+        <h2>Business Flows</h2>
+        <div class="nav-item" data-file="flow-data-collection.mmd">
+            Data Collection
+            <div class="desc">CLI -> IB -> CSV pipeline</div>
+        </div>
+        <div class="nav-item" data-file="flow-strategy-analysis.mmd">
+            Strategy Analysis
+            <div class="desc">Price lookup -> P&L -> best/worst</div>
+        </div>
+        <div class="nav-item" data-file="flow-live-trading.mmd">
+            Live Trading
+            <div class="desc">IB connect -> positions -> P&L</div>
+        </div>
+        <div class="nav-item" data-file="flow-strike-scanner.mmd">
+            Strike Scanner
+            <div class="desc">Match pairs -> rank -> apply</div>
+        </div>
+        <div class="nav-item" data-file="flow-price-discovery.mmd">
+            Price Discovery
+            <div class="desc">Liquidity-aware price lookup</div>
+        </div>
+
+        <div class="controls">
+            <button id="theme-toggle">Toggle Theme</button>
+            <button id="zoom-reset">Reset Zoom</button>
+        </div>
+    </nav>
+
+    <main class="main">
+        <h2 id="diagram-title">System Overview</h2>
+        <div class="meta" id="diagram-meta">system-overview.mmd</div>
+        <div id="diagram-container">
+            <div class="loading">Loading diagram...</div>
+        </div>
+    </main>
+
+    <script>
+        mermaid.initialize({
+            startOnLoad: false,
+            theme: 'default',
+            securityLevel: 'loose',
+            flowchart: { useMaxWidth: true, htmlLabels: true },
+            er: { useMaxWidth: true }
+        });
+
+        const container = document.getElementById('diagram-container');
+        const titleEl = document.getElementById('diagram-title');
+        const metaEl = document.getElementById('diagram-meta');
+        const navItems = document.querySelectorAll('.nav-item');
+        let currentTheme = 'light';
+
+        async function loadDiagram(filename) {
+            container.innerHTML = '<div class="loading">Loading diagram...</div>';
+
+            try {
+                const resp = await fetch(filename);
+                if (!resp.ok) throw new Error(`Failed to load ${filename}: ${resp.status}`);
+                let mmdText = await resp.text();
+
+                // Extract title from filename
+                const name = filename.replace('.mmd', '')
+                    .replace('flow-', 'Flow: ')
+                    .replace(/-/g, ' ')
+                    .replace(/\b\w/g, c => c.toUpperCase());
+
+                titleEl.textContent = name;
+                metaEl.textContent = filename;
+
+                // Remove comment lines for rendering
+                const lines = mmdText.split('\n').filter(l => !l.trim().startsWith('%%'));
+                const cleanMmd = lines.join('\n').trim();
+
+                // Render
+                const { svg } = await mermaid.render('diagram-' + Date.now(), cleanMmd);
+                container.innerHTML = svg;
+            } catch (err) {
+                container.innerHTML = `<div class="error">Error loading diagram:\n${err.message}\n\nMake sure you're running:\npython3 -m http.server 8080 --directory docs/architecture</div>`;
+            }
+        }
+
+        // Navigation
+        navItems.forEach(item => {
+            item.addEventListener('click', () => {
+                navItems.forEach(n => n.classList.remove('active'));
+                item.classList.add('active');
+                loadDiagram(item.dataset.file);
+            });
+        });
+
+        // Theme toggle
+        document.getElementById('theme-toggle').addEventListener('click', () => {
+            currentTheme = currentTheme === 'light' ? 'dark' : 'light';
+            document.body.setAttribute('data-theme', currentTheme === 'dark' ? 'dark' : '');
+            mermaid.initialize({
+                startOnLoad: false,
+                theme: currentTheme === 'dark' ? 'dark' : 'default',
+                securityLevel: 'loose',
+                flowchart: { useMaxWidth: true, htmlLabels: true },
+                er: { useMaxWidth: true }
+            });
+            // Re-render current diagram
+            const active = document.querySelector('.nav-item.active');
+            if (active) loadDiagram(active.dataset.file);
+        });
+
+        // Zoom reset
+        document.getElementById('zoom-reset').addEventListener('click', () => {
+            container.scrollTo(0, 0);
+        });
+
+        // Load initial diagram
+        loadDiagram('system-overview.mmd');
+    </script>
+</body>
+</html>

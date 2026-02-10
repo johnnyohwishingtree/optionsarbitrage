@@ -1,0 +1,39 @@
+%% Data Model — ER diagram of CSV schemas
+%% Updated: 2026-02-07
+
+erDiagram
+    UNDERLYING_PRICES {
+        string symbol PK "SPY | SPX | XSP"
+        datetime time PK "1-min bar timestamp"
+        float open "Bar open price"
+        float high "Bar high price"
+        float low "Bar low price"
+        float close "Bar close price"
+        int volume "Trade count"
+    }
+
+    OPTIONS_DATA {
+        string symbol PK "SPY | SPX | XSP"
+        float strike PK "Strike price"
+        string right PK "C | P"
+        datetime time PK "1-min bar timestamp"
+        float open "Option bar open"
+        float high "Option bar high"
+        float low "Option bar low"
+        float close "Option bar close"
+        int volume "Trade count (0 = stale)"
+    }
+
+    OPTIONS_BIDASK {
+        string symbol PK "SPY | SPX | XSP"
+        float strike PK "Strike price"
+        string right PK "C | P"
+        datetime time PK "1-min bar timestamp"
+        float bid "Best bid"
+        float ask "Best ask"
+        float midpoint "bid plus ask div 2"
+    }
+
+    UNDERLYING_PRICES ||--o{ OPTIONS_DATA : "same symbol and time"
+    UNDERLYING_PRICES ||--o{ OPTIONS_BIDASK : "same symbol and time"
+    OPTIONS_DATA ||--o| OPTIONS_BIDASK : "same symbol strike right time"

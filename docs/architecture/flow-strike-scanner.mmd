@@ -1,0 +1,38 @@
+%% Flow: Strike Scanner (Tab 5)
+%% Updated: 2026-02-07
+
+flowchart TD
+    CONFIG["Scanner config\nOption type: calls / puts\nLiquidity filter threshold\nSymbol pair from sidebar"]:::tab
+
+    MATCH["Match strike pairs by moneyness\nFor each SPY strike, find SYM2 strike where:\nabs(sym2_strike - spy_strike × open_ratio) / target < 0.5%"]:::function
+
+    FILTER_LIQ["Filter liquidity\nRemove strikes with daily volume < threshold\nOnly keep bars where volume > 0"]:::function
+
+    NORMALIZE["Normalize prices\nSPX_normalized = SPX_price / open_ratio\nMakes SPY vs SPX comparable"]:::function
+
+    CALC_SPREAD["Calculate spread per pair\nspread = normalized_sym2 - sym1\nTrack over all 1-min bars"]:::function
+
+    BEST_WORST_SCAN["FN_calcBestWorst per pair\nAt max spread time and best worst-case time\nGrid search: 50 prices × 3 drifts"]:::function
+
+    RANK["Rank results\nSort by: safety (worst P&L)\nor profit (credit)\nor risk-reward ratio"]:::function
+
+    RESULTS["Display results table\nStrike pair / Max spread / Credit\nBest/worst P&L / Time"]:::tab
+
+    APPLY["Apply button\nSets session_state:\nselected_spy_strike\nselected_spx_strike\nselected_entry_time\nSwitches to TAB_historical"]:::tab
+
+    CONFIG --> MATCH
+    MATCH --> FILTER_LIQ
+    FILTER_LIQ --> NORMALIZE
+    NORMALIZE --> CALC_SPREAD
+    CALC_SPREAD --> BEST_WORST_SCAN
+    BEST_WORST_SCAN --> RANK
+    RANK --> RESULTS
+    RESULTS -->|"user clicks Apply"| APPLY
+    APPLY -->|"session_state"| TAB_HISTORICAL["TAB_historical"]:::tab
+
+    %% Style definitions
+    classDef external  fill:#f9d0d0,stroke:#c0392b,color:#333
+    classDef module    fill:#d0e0f9,stroke:#2471a3,color:#333
+    classDef function  fill:#d0f9d0,stroke:#27ae60,color:#333
+    classDef data      fill:#f9e4d0,stroke:#e67e22,color:#333
+    classDef tab       fill:#e0d0f9,stroke:#8e44ad,color:#333

@@ -1,0 +1,46 @@
+%% Flow: Strategy Analysis (Tab 1 — Historical Analysis)
+%% Updated: 2026-02-07
+
+flowchart TD
+    LOAD["Load CSVs\ndf_underlying, df_options, df_bidask"]:::data
+
+    SIDEBAR["Sidebar config\nDate / Symbol pair / Entry time\nStrikes / Direction / Strategy type"]:::tab
+
+    PRICE_LOOKUP["FN_getPriceWithLiquidity\nFor each leg:\n1. Filter TRADES to volume > 0\n2. Check BID_ASK availability\n3. Use midpoint or TRADES open"]:::function
+
+    STALE_CHECK{"Any leg is_stale?"}:::function
+
+    STALE_ERROR["Show error: stale price\nst.stop()"]:::external
+
+    POSITION_BUILDER["Position builder\nQuantity inputs (10 SPY : 1 SPX)\nEditable prices\nCall leg + Put leg"]:::tab
+
+    CREDIT_CALC["Credit calculation\ncall_credit = sell × qty - buy × qty\nput_credit = sell × qty - buy × qty\ntotal_credit = call + put"]:::function
+
+    MARGIN["Margin estimate\n20% of short notional\n(simplified)"]:::function
+
+    SETTLEMENT["Settlement cash flow\nFN_calcSettlement for each leg\nat market close prices"]:::function
+
+    PNL["P&L = total_credit + settlement_cost\nFN_calcOptionPnl per leg"]:::function
+
+    BEST_WORST["FN_calcBestWorst\nGrid search: 50 prices × 3 basis drifts\n±5% range, ±0.10% drift\nReturns best/worst P&L"]:::function
+
+    DISPLAY["Display results\nCredit summary / Settlement table\nBest-worst range / Actual outcome\nJSON export"]:::tab
+
+    LOAD --> SIDEBAR
+    SIDEBAR --> PRICE_LOOKUP
+    PRICE_LOOKUP --> STALE_CHECK
+    STALE_CHECK -->|"yes"| STALE_ERROR
+    STALE_CHECK -->|"no"| POSITION_BUILDER
+    POSITION_BUILDER --> CREDIT_CALC
+    CREDIT_CALC --> MARGIN
+    MARGIN --> SETTLEMENT
+    SETTLEMENT --> PNL
+    PNL --> BEST_WORST
+    BEST_WORST --> DISPLAY
+
+    %% Style definitions
+    classDef external  fill:#f9d0d0,stroke:#c0392b,color:#333
+    classDef module    fill:#d0e0f9,stroke:#2471a3,color:#333
+    classDef function  fill:#d0f9d0,stroke:#27ae60,color:#333
+    classDef data      fill:#f9e4d0,stroke:#e67e22,color:#333
+    classDef tab       fill:#e0d0f9,stroke:#8e44ad,color:#333

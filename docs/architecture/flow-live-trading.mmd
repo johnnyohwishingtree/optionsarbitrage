@@ -1,0 +1,45 @@
+%% Flow: Live Paper Trading (Tab 2)
+%% Updated: 2026-02-07
+
+flowchart TD
+    CONNECT["CLS_IBKRClient.connect()\nIB Gateway 127.0.0.1:4002"]:::module
+
+    CONNECT_CHECK{"Connected?"}:::function
+
+    CONNECT_ERROR["Show error:\nCannot connect to IB Gateway"]:::external
+
+    ACCOUNT["get_account_summary()\nnet_liquidation, total_cash\navailable_funds, buying_power"]:::function
+
+    LIVE_PRICES["get_current_price()\nSPY and SPX live quotes"]:::function
+
+    POSITIONS["get_positions()\nAll open option positions\nsymbol, strike, right, qty, avg_cost"]:::function
+
+    SETTLEMENT_PNL["Calculate settlement P&L\nFor each position:\n1. Get underlying price\n2. FN_calcSettlement(price, strike, right)\n3. SHORT: (avg_cost - intrinsic) × |qty| × 100\n4. LONG: (intrinsic - avg_cost) × qty × 100"]:::function
+
+    DISPLAY["Display\nAccount summary table\nPositions table with P&L\nTotal P&L"]:::tab
+
+    MANAGE{"Position management"}:::tab
+
+    CLOSE["close_position()\nMarket order to close"]:::function
+
+    REFRESH["Refresh button\nRe-fetch all data"]:::tab
+
+    CONNECT --> CONNECT_CHECK
+    CONNECT_CHECK -->|"no"| CONNECT_ERROR
+    CONNECT_CHECK -->|"yes"| ACCOUNT
+    ACCOUNT --> LIVE_PRICES
+    LIVE_PRICES --> POSITIONS
+    POSITIONS --> SETTLEMENT_PNL
+    SETTLEMENT_PNL --> DISPLAY
+    DISPLAY --> MANAGE
+    MANAGE -->|"close"| CLOSE
+    CLOSE --> REFRESH
+    REFRESH --> ACCOUNT
+    DISPLAY --> REFRESH
+
+    %% Style definitions
+    classDef external  fill:#f9d0d0,stroke:#c0392b,color:#333
+    classDef module    fill:#d0e0f9,stroke:#2471a3,color:#333
+    classDef function  fill:#d0f9d0,stroke:#27ae60,color:#333
+    classDef data      fill:#f9e4d0,stroke:#e67e22,color:#333
+    classDef tab       fill:#e0d0f9,stroke:#8e44ad,color:#333

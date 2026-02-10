@@ -1,0 +1,48 @@
+%% Flow: Data Collection Pipeline
+%% Updated: 2026-02-07
+%% Entry point: python collect_market_data.py --date YYYYMMDD [--range 0.03] [--full] [--data-type both] [--symbols SPY SPX XSP]
+
+flowchart TD
+    START["CLI: collect_market_data.py\n--date --range --full\n--data-type --symbols"]:::module
+
+    CHECK_INCREMENTAL{"Incremental?\nFN_getLastTimestamp\nchecks existing CSV"}:::function
+
+    CONNECT["CLS_IBKRClient.connect()\nIB Gateway 127.0.0.1:4002"]:::module
+
+    FETCH_REF["Fetch reference prices\nSPY/SPX/XSP current price\nfor strike range calculation"]:::function
+
+    FETCH_UNDERLYING["Fetch underlying bars\n1-min OHLCV for each symbol\nRTH only"]:::function
+
+    CALC_STRIKES["Calculate strike range\n±range_pct from reference\nSPX: $5 steps | SPY/XSP: $1 steps"]:::function
+
+    QUALIFY["Qualify contracts\nib.qualifyContracts()\nfor all strikes × C/P"]:::function
+
+    FETCH_OPTIONS["Concurrent option fetch\nup to 40 parallel requests\nasync batching with pacing"]:::function
+
+    SAVE_UNDERLYING["Save underlying_prices_{date}.csv"]:::data
+    SAVE_TRADES["Save options_data_{date}.csv"]:::data
+    SAVE_BIDASK["Save options_bidask_{date}.csv"]:::data
+
+    DONE["Done\nFiles written to data/"]:::module
+
+    START --> CHECK_INCREMENTAL
+    CHECK_INCREMENTAL -->|"--full or no file"| CONNECT
+    CHECK_INCREMENTAL -->|"file exists"| CONNECT
+    CONNECT --> FETCH_REF
+    FETCH_REF --> FETCH_UNDERLYING
+    FETCH_UNDERLYING ==> SAVE_UNDERLYING
+    FETCH_UNDERLYING --> CALC_STRIKES
+    CALC_STRIKES --> QUALIFY
+    QUALIFY --> FETCH_OPTIONS
+    FETCH_OPTIONS ==>|"TRADES data"| SAVE_TRADES
+    FETCH_OPTIONS ==>|"BID_ASK data"| SAVE_BIDASK
+    SAVE_UNDERLYING --> DONE
+    SAVE_TRADES --> DONE
+    SAVE_BIDASK --> DONE
+
+    %% Style definitions
+    classDef external  fill:#f9d0d0,stroke:#c0392b,color:#333
+    classDef module    fill:#d0e0f9,stroke:#2471a3,color:#333
+    classDef function  fill:#d0f9d0,stroke:#27ae60,color:#333
+    classDef data      fill:#f9e4d0,stroke:#e67e22,color:#333
+    classDef tab       fill:#e0d0f9,stroke:#8e44ad,color:#333
