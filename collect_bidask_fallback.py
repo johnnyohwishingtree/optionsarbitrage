@@ -14,7 +14,7 @@ import pandas as pd
 
 import ib_async
 sys.modules['ib_insync'] = ib_async
-sys.path.insert(0, '/Users/johnnyhuang/personal/optionsarbitrage')
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from src.broker.ibkr_client import IBKRClient
 from ib_async import Option, Stock, Index

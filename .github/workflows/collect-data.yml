@@ -1,0 +1,117 @@
+name: Daily Options Data Collection
+
+on:
+  schedule:
+    # Run Mon-Fri at 21:30 UTC (4:30 PM ET during EST / 5:30 PM ET during EDT)
+    # Adjusted for EST (Feb-Mar). After daylight saving (Mar 8), shift to 20:30 UTC.
+    - cron: '30 21 * * 1-5'
+  workflow_dispatch:
+    inputs:
+      date:
+        description: 'Date to collect (YYYYMMDD). Leave empty for today.'
+        required: false
+        type: string
+
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: pip install ib_async pandas numpy pytz
+
+      - name: Determine date
+        id: date
+        run: |
+          if [ -n "${{ inputs.date }}" ]; then
+            echo "date=${{ inputs.date }}" >> $GITHUB_OUTPUT
+          else
+            echo "date=$(TZ='America/New_York' date +%Y%m%d)" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Start IB Gateway
+        run: |
+          docker run -d --name ib-gateway \
+            -p 4002:4004 \
+            -e TWS_USERID=${{ secrets.IB_USERNAME }} \
+            -e TWS_PASSWORD=${{ secrets.IB_PASSWORD }} \
+            -e TRADING_MODE=paper \
+            -e READ_ONLY_API=yes \
+            -e TWOFA_TIMEOUT_ACTION=restart \
+            -e EXISTING_SESSION_DETECTED_ACTION=primary \
+            ghcr.io/gnzsnz/ib-gateway:stable
+
+      - name: Wait for IB Gateway API
+        run: |
+          echo "Waiting for IB Gateway to log in and start API..."
+          for i in $(seq 1 90); do
+            if nc -z localhost 4002 2>/dev/null; then
+              echo "IB Gateway API is ready on port 4002!"
+              sleep 5  # extra buffer for API to fully initialize
+              exit 0
+            fi
+            if [ $((i % 10)) -eq 0 ]; then
+              echo "  Still waiting... ($i/90) - last few log lines:"
+              docker logs ib-gateway 2>&1 | tail -3
+            fi
+            sleep 2
+          done
+          echo "=== IB Gateway failed to start. Full logs: ==="
+          docker logs ib-gateway 2>&1
+          exit 1
+
+      - name: Collect underlying data
+        continue-on-error: true
+        run: |
+          python collect_market_data.py \
+            --date ${{ steps.date.outputs.date }} \
+            --symbols SPY,SPX,XSP
+        timeout-minutes: 10
+
+      - name: Collect options BID_ASK data
+        run: |
+          python collect_bidask_fallback.py \
+            --date ${{ steps.date.outputs.date }} \
+            --symbols XSP,SPX \
+            --range 0.03
+        timeout-minutes: 30
+
+      - name: Verify data files
+        run: |
+          DATE=${{ steps.date.outputs.date }}
+          echo "=== Data files for $DATE ==="
+          for f in data/underlying_prices_${DATE}.csv data/options_data_${DATE}.csv data/options_bidask_${DATE}.csv; do
+            if [ -f "$f" ]; then
+              LINES=$(wc -l < "$f")
+              echo "✅ $f: $LINES lines"
+            else
+              echo "❌ Missing: $f"
+            fi
+          done
+
+      - name: Commit and push data
+        run: |
+          DATE=${{ steps.date.outputs.date }}
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add data/*_${DATE}.csv
+          if git diff --cached --quiet; then
+            echo "No new data to commit"
+          else
+            git commit -m "data: add market data for ${DATE}"
+            git push
+          fi
+
+      - name: Stop IB Gateway
+        if: always()
+        run: docker stop ib-gateway && docker rm ib-gateway || true
