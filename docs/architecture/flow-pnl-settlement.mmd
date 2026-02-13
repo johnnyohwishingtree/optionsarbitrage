@@ -1,5 +1,5 @@
 %% Flow: P&L and Settlement Calculations
-%% Updated: 2026-02-13
+%% Updated: 2026-02-14
 %% Source: src/pnl.py
 
 flowchart LR
@@ -25,16 +25,16 @@ flowchart LR
         P_ACTION -->|"SELL"| P_SELL
     end
 
-    subgraph FullPosition["Full Position P&L at Settlement"]
-        ENTRY["Entry: 4 legs with prices\nSell call, Buy call\nSell put, Buy put"]:::tab
+    subgraph PositionPnL["Position P&L at Settlement"]
+        ENTRY["Entry: 2 or 4 legs with prices\nshow_calls: Sell call + Buy call\nshow_puts: Sell put + Buy put"]:::tab
 
-        CREDIT["Entry credit per leg\ncredit = sell_price × sell_qty × 100\n        - buy_price × buy_qty × 100"]:::function
+        CREDIT["Entry credit per active leg pair\ncredit = sell_price × sell_qty × 100\n        - buy_price × buy_qty × 100\n(inactive legs contribute 0)"]:::function
 
-        INTRINSIC["At expiration: get underlying prices\nFN_calcSettlement for each leg"]:::function
+        INTRINSIC["At expiration: get underlying prices\nFN_calcSettlement for each active leg"]:::function
 
-        LEG_PNL["FN_calcOptionPnl per leg\nexit_price = intrinsic value\naction = BUY or SELL"]:::function
+        LEG_PNL["FN_calcOptionPnl per active leg\nexit_price = intrinsic value\naction = BUY or SELL"]:::function
 
-        NET["Net P&L = sum of all 4 legs\n= total credit received\n  + total settlement cost"]:::function
+        NET["Net P&L = sum of active legs\n= call_credit + put_credit\n  + call_settlement + put_settlement\n(only active leg pairs included)"]:::function
 
         ENTRY --> CREDIT
         ENTRY --> INTRINSIC

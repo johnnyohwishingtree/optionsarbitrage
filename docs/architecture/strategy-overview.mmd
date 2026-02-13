@@ -1,5 +1,5 @@
 %% Strategy Overview — How the Arbitrage Works
-%% Updated: 2026-02-13
+%% Updated: 2026-02-14
 %% This diagram explains the BUSINESS STRATEGY, not the code structure.
 
 flowchart TD
@@ -10,12 +10,22 @@ flowchart TD
         CORRELATION --> GAP --> OPPORTUNITY
     end
 
-    subgraph Position["4-Leg Market-Neutral Position"]
-        direction LR
-        LEG_SC["Leg 1: SELL calls\non one symbol"]:::external
-        LEG_BC["Leg 2: BUY calls\non the other symbol"]:::function
-        LEG_SP["Leg 3: SELL puts\non one symbol"]:::external
-        LEG_BP["Leg 4: BUY puts\non the other symbol"]:::function
+    subgraph Position["Market-Neutral Position (2 or 4 legs)"]
+        STRATEGY_SEL{"Strategy mode"}:::tab
+        subgraph CallLegs["Call Spread (optional)"]
+            direction LR
+            LEG_SC["SELL calls\non one symbol"]:::external
+            LEG_BC["BUY calls\non the other symbol"]:::function
+        end
+        subgraph PutLegs["Put Spread (optional)"]
+            direction LR
+            LEG_SP["SELL puts\non one symbol"]:::external
+            LEG_BP["BUY puts\non the other symbol"]:::function
+        end
+        STRATEGY_SEL -->|"Full Strategy"| CallLegs
+        STRATEGY_SEL -->|"Full Strategy"| PutLegs
+        STRATEGY_SEL -->|"Calls Only"| CallLegs
+        STRATEGY_SEL -->|"Puts Only"| PutLegs
     end
 
     subgraph Ratios["Quantity Ratios"]
@@ -24,8 +34,8 @@ flowchart TD
     end
 
     subgraph Economics["How You Make Money"]
-        CREDIT["At entry: collect NET CREDIT\ncredit = sell_premium - buy_premium\nacross all 4 legs × qty × 100"]:::function
-        SETTLEMENT["At 0DTE expiration:\neach leg settles to intrinsic value\nCall: max(0, price - strike)\nPut: max(0, strike - price)"]:::function
+        CREDIT["At entry: collect NET CREDIT\ncredit = sell_premium - buy_premium\nacross active legs × qty × 100"]:::function
+        SETTLEMENT["At 0DTE expiration:\neach active leg settles to intrinsic value\nCall: max(0, price - strike)\nPut: max(0, strike - price)"]:::function
         LOCKSTEP["If symbols move in lockstep:\nsold and bought legs cancel out\nyou keep most of the credit"]:::function
         CREDIT --> SETTLEMENT --> LOCKSTEP
     end

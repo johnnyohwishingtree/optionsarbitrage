@@ -16,6 +16,7 @@ Every node in a diagram maps to a specific code location.
 | `CLS_` | Class           | `CLS_IBKRClient`                       | `src/broker/ibkr_client.py::IBKRClient`                            |
 | `FN_`  | Function        | `FN_collectDailyData`                  | `collect_market_data.py::collect_daily_data()`                     |
 | `FN_`  | Function        | `FN_getLastTimestamp`                  | `collect_market_data.py::get_last_timestamp()`                     |
+| `FN_`  | Function        | `FN_filterQualified`                   | `collect_market_data.py::filter_qualified_contracts()`             |
 | `FN_`  | Function        | `FN_calcOptionPnl`                     | `src/pnl.py::calculate_option_pnl()`                              |
 | `FN_`  | Function        | `FN_calcSettlement`                    | `src/pnl.py::calculate_settlement_value()`                        |
 | `FN_`  | Function        | `FN_calcBestWorst`                     | `src/pnl.py::calculate_best_worst_case_with_basis_drift()`        |

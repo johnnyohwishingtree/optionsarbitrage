@@ -1,6 +1,6 @@
-%% Flow: Position Construction — How the 4-leg position is built
-%% Updated: 2026-02-13
-%% Source: strategy_calculator_simple.py lines 149-151, 675-744
+%% Flow: Position Construction — How the position is built (2 or 4 legs)
+%% Updated: 2026-02-14
+%% Source: strategy_calculator_simple.py lines 149-151, 601-628, 669-744
 
 flowchart TD
     PAIR["Select symbol pair\nSPY/SPX | SPY/XSP | XSP/SPX"]:::tab
@@ -15,6 +15,8 @@ flowchart TD
 
     MONEYNESS["Verify moneyness match\nmoneyness = (strike - price) / price × 100\nWarn if diff > 0.05%"]:::function
 
+    STRATEGY{"Strategy mode?\nshow_calls / show_puts"}:::tab
+
     CALL_DIR{"Call direction?"}:::tab
 
     CALL_SELL_SYM1["Sell QTY_RATIO SYM1 calls\nBuy 1 SYM2 call\n(e.g. Sell 10 SPY 695C, Buy 1 SPX 6960C)"]:::function
@@ -27,9 +29,9 @@ flowchart TD
 
     PUT_SELL_SYM1["Sell QTY_RATIO SYM1 puts\nBuy 1 SYM2 put\n(e.g. Sell 10 SPY 695P, Buy 1 SPX 6960P)"]:::function
 
-    FULL_POSITION["4-leg position assembled\nSell call + Buy call + Sell put + Buy put"]:::module
+    POSITION["Position assembled\n2 legs (calls or puts only)\nor 4 legs (full strategy)"]:::module
 
-    CREDIT["Calculate net credit\ncall_credit = (sell_price × sell_qty - buy_price × buy_qty) × 100\nput_credit  = (sell_price × sell_qty - buy_price × buy_qty) × 100\ntotal = call_credit + put_credit"]:::function
+    CREDIT["Calculate net credit\ncall_credit = (sell_price × sell_qty - buy_price × buy_qty) × 100\nput_credit  = (sell_price × sell_qty - buy_price × buy_qty) × 100\ntotal = call_credit + put_credit\n(inactive legs contribute 0)"]:::function
 
     MARGIN["Estimate margin requirement\nmargin = short_qty × strike × 100 × 0.20\n         - credit_received\n(20% of short notional, reduced by credit)"]:::function
 
@@ -39,16 +41,20 @@ flowchart TD
     RATIO_10 --> STRIKES
     RATIO_1 --> STRIKES
     STRIKES --> MONEYNESS
-    MONEYNESS --> CALL_DIR
+    MONEYNESS --> STRATEGY
+    STRATEGY -->|"Full Strategy\nor Calls Only"| CALL_DIR
+    STRATEGY -->|"Puts Only"| PUT_DIR
     CALL_DIR -->|"Buy SYM2, Sell SYM1"| CALL_SELL_SYM1
     CALL_DIR -->|"Sell SYM2, Buy SYM1"| CALL_SELL_SYM2
-    CALL_SELL_SYM1 --> PUT_DIR
-    CALL_SELL_SYM2 --> PUT_DIR
+    CALL_SELL_SYM1 -->|"Full Strategy"| PUT_DIR
+    CALL_SELL_SYM2 -->|"Full Strategy"| PUT_DIR
+    CALL_SELL_SYM1 -->|"Calls Only"| POSITION
+    CALL_SELL_SYM2 -->|"Calls Only"| POSITION
     PUT_DIR -->|"Buy SYM1, Sell SYM2"| PUT_SELL_SYM2
     PUT_DIR -->|"Sell SYM1, Buy SYM2"| PUT_SELL_SYM1
-    PUT_SELL_SYM2 --> FULL_POSITION
-    PUT_SELL_SYM1 --> FULL_POSITION
-    FULL_POSITION --> CREDIT
+    PUT_SELL_SYM2 --> POSITION
+    PUT_SELL_SYM1 --> POSITION
+    POSITION --> CREDIT
     CREDIT --> MARGIN
 
     %% Style definitions

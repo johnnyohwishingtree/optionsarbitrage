@@ -1,5 +1,5 @@
 %% Flow: Data Collection Pipeline
-%% Updated: 2026-02-12
+%% Updated: 2026-02-13
 %% Entry point: python collect_market_data.py --date YYYYMMDD [--range 0.03] [--full] [--data-type both] [--symbols SPY SPX XSP]
 
 flowchart TD
@@ -16,6 +16,8 @@ flowchart TD
     CALC_STRIKES["Calculate strike range\n±range_pct from reference\nSPX: $5 steps | SPY/XSP: $1 steps"]:::function
 
     QUALIFY["Qualify contracts\nib.qualifyContracts()\nbatches of 50"]:::function
+
+    FILTER["FN_filterQualified\nfilter_qualified_contracts()\nDrop conId=0, report per-symbol stats"]:::function
 
     FETCH_TRADES["TRADES pass\nbatch size 10\nasync with pacing"]:::function
 
@@ -35,8 +37,9 @@ flowchart TD
     FETCH_UNDERLYING --> FETCH_REF
     FETCH_REF --> CALC_STRIKES
     CALC_STRIKES --> QUALIFY
-    QUALIFY --> FETCH_TRADES
-    QUALIFY --> FETCH_BIDASK
+    QUALIFY --> FILTER
+    FILTER --> FETCH_TRADES
+    FILTER --> FETCH_BIDASK
     FETCH_TRADES ==>|"TRADES data"| SAVE_TRADES
     FETCH_BIDASK ==>|"BID_ASK data"| SAVE_BIDASK
     SAVE_UNDERLYING --> DONE

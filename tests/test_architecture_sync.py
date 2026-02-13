@@ -32,6 +32,7 @@ CLASS_NODES = {
 FUNCTION_NODES = {
     "FN_collectDailyData": ("collect_market_data.py", "collect_daily_data"),
     "FN_getLastTimestamp": ("collect_market_data.py", "get_last_timestamp"),
+    "FN_filterQualified": ("collect_market_data.py", "filter_qualified_contracts"),
     "FN_calcOptionPnl": ("src/pnl.py", "calculate_option_pnl"),
     "FN_calcSettlement": ("src/pnl.py", "calculate_settlement_value"),
     "FN_calcBestWorst": ("src/pnl.py", "calculate_best_worst_case_with_basis_drift"),

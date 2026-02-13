@@ -50,6 +50,33 @@ except ImportError:
     from ib_insync import Option, Stock, Index
 
 
+def filter_qualified_contracts(all_contracts, contracts):
+    """
+    Separate qualified from unqualified contracts after IB qualification.
+
+    Args:
+        all_contracts: list of (symbol, strike, right) tuples
+        contracts: list of IB Contract objects (same order as all_contracts),
+                   with conId populated by qualifyContracts()
+
+    Returns:
+        (qualified, stats) where:
+        - qualified: list of ((sym, strike, right), contract) for conId > 0
+        - stats: dict with 'ok' and 'failed' per-symbol counts, e.g.
+                 {'ok': {'SPX': 40, 'XSP': 40}, 'failed': {'SPY': 42}}
+    """
+    qualified = []
+    ok = {}
+    failed = {}
+    for (sym, strike, right), contract in zip(all_contracts, contracts):
+        if contract.conId and contract.conId > 0:
+            qualified.append(((sym, strike, right), contract))
+            ok[sym] = ok.get(sym, 0) + 1
+        else:
+            failed[sym] = failed.get(sym, 0) + 1
+    return qualified, {'ok': ok, 'failed': failed}
+
+
 def get_last_timestamp(file_path):
     """Get the last timestamp from existing data file"""
     if not os.path.exists(file_path):
@@ -281,14 +308,38 @@ def collect_daily_data(date_str=None, strike_range_pct=0.03, force_full=False, d
 
         # Qualify all contracts upfront in larger batches (qualification is lightweight)
         QUAL_BATCH = 50
-        print(f'   Qualifying {total_contracts} contracts...', end=' ')
+        print(f'   Qualifying {total_contracts} contracts...')
         qualified_contracts = []
+        _qual_stats = {'ok': {}, 'failed': {}}
         for i in range(0, total_contracts, QUAL_BATCH):
             batch = all_contracts[i:i+QUAL_BATCH]
             contracts = [Option(sym, date_str, strike, right, 'SMART') for sym, strike, right in batch]
             client.ib.qualifyContracts(*contracts)
-            qualified_contracts.extend(zip(batch, contracts))
-        print('done')
+            batch_qualified, batch_stats = filter_qualified_contracts(batch, contracts)
+            qualified_contracts.extend(batch_qualified)
+            for sym, count in batch_stats['ok'].items():
+                _qual_stats['ok'][sym] = _qual_stats['ok'].get(sym, 0) + count
+            for sym, count in batch_stats['failed'].items():
+                _qual_stats['failed'][sym] = _qual_stats['failed'].get(sym, 0) + count
+
+        # Report qualification results per symbol
+        for sym in symbols:
+            ok = _qual_stats['ok'].get(sym, 0)
+            fail = _qual_stats['failed'].get(sym, 0)
+            total = ok + fail
+            if fail > 0:
+                print(f'   ⚠️  {sym}: {ok}/{total} contracts qualified ({fail} FAILED)')
+            else:
+                print(f'   ✅ {sym}: {ok}/{total} contracts qualified')
+
+        if _qual_stats['failed']:
+            total_failed = sum(_qual_stats['failed'].values())
+            print(f'   ⚠️  {total_failed} contracts could not be qualified (will be skipped)')
+            print(f'   ℹ️  This often happens with expired 0DTE options — IB may remove contract')
+            print(f'       definitions after market close. Try collecting earlier in the day.')
+
+        total_qualified = len(qualified_contracts)
+        print(f'   Total qualified: {total_qualified} / {total_contracts}')
 
         # Suppress noisy "no data" errors (Error 162) from IB during batch collection
         _orig_error_handler = client.ib.errorEvent
@@ -430,6 +481,7 @@ def collect_daily_data(date_str=None, strike_range_pct=0.03, force_full=False, d
         if collect_trades:
             if options_data:
                 new_df = pd.DataFrame(options_data)
+                _syms_in_data = sorted(new_df['symbol'].unique())
 
                 if os.path.exists(options_file) and not force_full:
                     existing_df = pd.read_csv(options_file)
@@ -443,6 +495,19 @@ def collect_daily_data(date_str=None, strike_range_pct=0.03, force_full=False, d
 
                     print(f'\n   ✅ TRADES: Saved {len(new_df):,} bars to {options_file}')
                     print(f'   Unique contracts: {len(new_df.groupby(["symbol", "strike", "right"]))}')
+
+                # Per-symbol breakdown
+                for sym in symbols:
+                    sym_count = len(new_df[new_df['symbol'] == sym])
+                    if sym_count == 0 and sym not in _syms_in_data:
+                        print(f'   ❌ {sym}: 0 bars (no data collected!)')
+                    else:
+                        print(f'   📊 {sym}: {sym_count:,} bars')
+
+                # Warn about missing symbols
+                _missing = [s for s in symbols if s not in _syms_in_data]
+                if _missing:
+                    print(f'   ⚠️  Missing symbols in TRADES: {", ".join(_missing)}')
             else:
                 print(f'\n   ℹ️  No new TRADES data to add')
 
@@ -450,6 +515,7 @@ def collect_daily_data(date_str=None, strike_range_pct=0.03, force_full=False, d
         if collect_bidask:
             if bidask_data:
                 new_df = pd.DataFrame(bidask_data)
+                _syms_in_data = sorted(new_df['symbol'].unique())
 
                 if os.path.exists(bidask_file) and not force_full:
                     existing_df = pd.read_csv(bidask_file)
@@ -463,6 +529,19 @@ def collect_daily_data(date_str=None, strike_range_pct=0.03, force_full=False, d
 
                     print(f'\n   ✅ BID_ASK: Saved {len(new_df):,} bars to {bidask_file}')
                     print(f'   Unique contracts: {len(new_df.groupby(["symbol", "strike", "right"]))}')
+
+                # Per-symbol breakdown
+                for sym in symbols:
+                    sym_count = len(new_df[new_df['symbol'] == sym])
+                    if sym_count == 0 and sym not in _syms_in_data:
+                        print(f'   ❌ {sym}: 0 bars (no data collected!)')
+                    else:
+                        print(f'   📊 {sym}: {sym_count:,} bars')
+
+                # Warn about missing symbols
+                _missing = [s for s in symbols if s not in _syms_in_data]
+                if _missing:
+                    print(f'   ⚠️  Missing symbols in BID_ASK: {", ".join(_missing)}')
             else:
                 print(f'\n   ℹ️  No new BID_ASK data to add')
 
