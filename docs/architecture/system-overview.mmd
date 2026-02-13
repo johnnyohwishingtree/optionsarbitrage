@@ -13,6 +13,10 @@ graph TD
     MOD_ibkrClient["src/broker/ibkr_client.py"]:::module
     CLS_IBKRClient["IBKRClient"]:::module
 
+    %% Core logic modules
+    MOD_pnl["src/pnl.py\nP&L Calculations"]:::module
+    MOD_pricing["src/pricing.py\nPrice Discovery"]:::module
+
     %% Strategy calculator (Streamlit app)
     MOD_strategy["strategy_calculator_simple.py\nStreamlit Dashboard"]:::module
 
@@ -42,6 +46,10 @@ graph TD
     DATA_underlying ==>|"loads"| MOD_strategy
     DATA_optTrades ==>|"loads"| MOD_strategy
     DATA_optBidask ==>|"loads"| MOD_strategy
+
+    %% Edges: Strategy uses core modules
+    MOD_strategy --> MOD_pnl
+    MOD_strategy --> MOD_pricing
 
     %% Edges: Strategy hosts tabs
     MOD_strategy --> StreamlitTabs

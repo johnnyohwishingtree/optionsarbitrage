@@ -18,6 +18,8 @@ MODULE_MAP = {
     "collect_market_data.py": "MOD_collect",
     "strategy_calculator_simple.py": "MOD_strategy",
     "src/broker/ibkr_client.py": "MOD_ibkrClient",
+    "src/pnl.py": "MOD_pnl",
+    "src/pricing.py": "MOD_pricing",
 }
 
 # Test files
@@ -57,6 +59,8 @@ LOCAL_IMPORT_MAP = {
     "src.broker.ibkr_client": "MOD_ibkrClient",
     "src.broker": "MOD_ibkrClient",
     "ibkr_client": "MOD_ibkrClient",
+    "src.pnl": "MOD_pnl",
+    "src.pricing": "MOD_pricing",
 }
 
 
@@ -185,7 +189,7 @@ def discover_new_modules() -> list[tuple[str, str]]:
             continue
         # Skip __pycache__, venv, etc.
         parts = py_file.relative_to(ROOT).parts
-        if any(p.startswith(".") or p in ("venv", "env", "__pycache__", "build", "dist", "scripts") for p in parts):
+        if any(p.startswith(".") or p in ("venv", "env", "__pycache__", "build", "dist", "scripts", "tests") for p in parts):
             continue
         # Skip __init__.py
         if py_file.name == "__init__.py":
@@ -216,6 +220,8 @@ def render_mermaid(
         "MOD_collect": "collect_market_data.py",
         "MOD_strategy": "strategy_calculator_simple.py",
         "MOD_ibkrClient": "src/broker/ibkr_client.py",
+        "MOD_pnl": "src/pnl.py",
+        "MOD_pricing": "src/pricing.py",
     }
     for node_id in sorted(used_modules):
         if node_id in module_labels:

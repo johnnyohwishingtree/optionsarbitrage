@@ -1,0 +1,59 @@
+%% Flow: Position Construction — How the 4-leg position is built
+%% Updated: 2026-02-13
+%% Source: strategy_calculator_simple.py lines 149-151, 675-744
+
+flowchart TD
+    PAIR["Select symbol pair\nSPY/SPX | SPY/XSP | XSP/SPX"]:::tab
+
+    RATIO_CHECK{"SYM2 == SPX?"}:::function
+
+    RATIO_10["QTY_RATIO = 10\nSYM2_STRIKE_STEP = $5\n(10 SYM1 : 1 SPX)"]:::data
+
+    RATIO_1["QTY_RATIO = 1\nSYM2_STRIKE_STEP = $1\n(1:1 ratio)"]:::data
+
+    STRIKES["Select strikes\nSYM1 strike (e.g. SPY 695)\nSYM2 strike (e.g. SPX 6960)"]:::tab
+
+    MONEYNESS["Verify moneyness match\nmoneyness = (strike - price) / price × 100\nWarn if diff > 0.05%"]:::function
+
+    CALL_DIR{"Call direction?"}:::tab
+
+    CALL_SELL_SYM1["Sell QTY_RATIO SYM1 calls\nBuy 1 SYM2 call\n(e.g. Sell 10 SPY 695C, Buy 1 SPX 6960C)"]:::function
+
+    CALL_SELL_SYM2["Sell 1 SYM2 call\nBuy QTY_RATIO SYM1 calls\n(e.g. Sell 1 SPX 6960C, Buy 10 SPY 695C)"]:::function
+
+    PUT_DIR{"Put direction?"}:::tab
+
+    PUT_SELL_SYM2["Sell 1 SYM2 put\nBuy QTY_RATIO SYM1 puts\n(e.g. Sell 1 SPX 6960P, Buy 10 SPY 695P)"]:::function
+
+    PUT_SELL_SYM1["Sell QTY_RATIO SYM1 puts\nBuy 1 SYM2 put\n(e.g. Sell 10 SPY 695P, Buy 1 SPX 6960P)"]:::function
+
+    FULL_POSITION["4-leg position assembled\nSell call + Buy call + Sell put + Buy put"]:::module
+
+    CREDIT["Calculate net credit\ncall_credit = (sell_price × sell_qty - buy_price × buy_qty) × 100\nput_credit  = (sell_price × sell_qty - buy_price × buy_qty) × 100\ntotal = call_credit + put_credit"]:::function
+
+    MARGIN["Estimate margin requirement\nmargin = short_qty × strike × 100 × 0.20\n         - credit_received\n(20% of short notional, reduced by credit)"]:::function
+
+    PAIR --> RATIO_CHECK
+    RATIO_CHECK -->|"yes"| RATIO_10
+    RATIO_CHECK -->|"no"| RATIO_1
+    RATIO_10 --> STRIKES
+    RATIO_1 --> STRIKES
+    STRIKES --> MONEYNESS
+    MONEYNESS --> CALL_DIR
+    CALL_DIR -->|"Buy SYM2, Sell SYM1"| CALL_SELL_SYM1
+    CALL_DIR -->|"Sell SYM2, Buy SYM1"| CALL_SELL_SYM2
+    CALL_SELL_SYM1 --> PUT_DIR
+    CALL_SELL_SYM2 --> PUT_DIR
+    PUT_DIR -->|"Buy SYM1, Sell SYM2"| PUT_SELL_SYM2
+    PUT_DIR -->|"Sell SYM1, Buy SYM2"| PUT_SELL_SYM1
+    PUT_SELL_SYM2 --> FULL_POSITION
+    PUT_SELL_SYM1 --> FULL_POSITION
+    FULL_POSITION --> CREDIT
+    CREDIT --> MARGIN
+
+    %% Style definitions
+    classDef external  fill:#f9d0d0,stroke:#c0392b,color:#333
+    classDef module    fill:#d0e0f9,stroke:#2471a3,color:#333
+    classDef function  fill:#d0f9d0,stroke:#27ae60,color:#333
+    classDef data      fill:#f9e4d0,stroke:#e67e22,color:#333
+    classDef tab       fill:#e0d0f9,stroke:#8e44ad,color:#333

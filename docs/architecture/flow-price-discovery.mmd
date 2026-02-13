@@ -1,5 +1,5 @@
 %% Flow: Price Discovery — Liquidity-aware price lookup
-%% Updated: 2026-02-07
+%% Updated: 2026-02-13
 %% Entry: FN_getPriceWithLiquidity(df_options, df_bidask, symbol, strike, right, entry_time)
 
 flowchart TD
@@ -11,7 +11,13 @@ flowchart TD
 
     HAS_VOLUME{"volume > 0?"}:::function
 
-    STALE_PATH["Mark is_stale = true\nSet liquidity_warning:\n'No recent trades'"]:::function
+    STALE_PATH["volume == 0 path"]:::function
+
+    HAS_QUOTES{"Valid bid/ask\nquotes exist?"}:::function
+
+    USABLE_NO_TRADES["Usable but no trades\nliquidity_warning:\n'No trades (vol=0), bid/ask=X/Y'"]:::function
+
+    TRULY_STALE["is_stale = true\nliquidity_warning:\n'STALE (vol=0, no valid quotes)'"]:::external
 
     CHECK_BIDASK{"BID_ASK data\navailable?"}:::function
 
@@ -35,7 +41,11 @@ flowchart TD
     FILTER_TRADES --> PREFER_LIQUID
     PREFER_LIQUID --> HAS_VOLUME
     HAS_VOLUME -->|"no"| STALE_PATH
-    STALE_PATH --> CHECK_BIDASK
+    STALE_PATH --> HAS_QUOTES
+    HAS_QUOTES -->|"yes (bid>0 and ask>0)"| USABLE_NO_TRADES
+    HAS_QUOTES -->|"no"| TRULY_STALE
+    USABLE_NO_TRADES --> CHECK_BIDASK
+    TRULY_STALE --> CHECK_BIDASK
     HAS_VOLUME -->|"yes"| CHECK_BIDASK
     CHECK_BIDASK -->|"no"| USE_TRADES
     CHECK_BIDASK -->|"yes"| FILTER_BIDASK

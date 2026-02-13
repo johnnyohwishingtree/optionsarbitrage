@@ -11,15 +11,17 @@ Every node in a diagram maps to a specific code location.
 | `MOD_` | Python module   | `MOD_collect`                          | `collect_market_data.py`                                           |
 | `MOD_` | Python module   | `MOD_strategy`                         | `strategy_calculator_simple.py`                                    |
 | `MOD_` | Python module   | `MOD_ibkrClient`                       | `src/broker/ibkr_client.py`                                        |
+| `MOD_` | Python module   | `MOD_pnl`                              | `src/pnl.py`                                                       |
+| `MOD_` | Python module   | `MOD_pricing`                          | `src/pricing.py`                                                   |
 | `CLS_` | Class           | `CLS_IBKRClient`                       | `src/broker/ibkr_client.py::IBKRClient`                            |
 | `FN_`  | Function        | `FN_collectDailyData`                  | `collect_market_data.py::collect_daily_data()`                     |
 | `FN_`  | Function        | `FN_getLastTimestamp`                  | `collect_market_data.py::get_last_timestamp()`                     |
-| `FN_`  | Function        | `FN_calcOptionPnl`                     | `strategy_calculator_simple.py::calculate_option_pnl()`            |
-| `FN_`  | Function        | `FN_calcSettlement`                    | `strategy_calculator_simple.py::calculate_settlement_value()`      |
-| `FN_`  | Function        | `FN_calcBestWorst`                     | `strategy_calculator_simple.py::calculate_best_worst_case_with_basis_drift()` |
-| `FN_`  | Function        | `FN_getPriceWithLiquidity`             | `strategy_calculator_simple.py::get_option_price_with_liquidity()` |
-| `FN_`  | Function        | `FN_getPriceFromDb`                    | `strategy_calculator_simple.py::get_option_price_from_db()`        |
-| `FN_`  | Function        | `FN_findNearestRow`                    | `strategy_calculator_simple.py::_find_nearest_row()`               |
+| `FN_`  | Function        | `FN_calcOptionPnl`                     | `src/pnl.py::calculate_option_pnl()`                              |
+| `FN_`  | Function        | `FN_calcSettlement`                    | `src/pnl.py::calculate_settlement_value()`                        |
+| `FN_`  | Function        | `FN_calcBestWorst`                     | `src/pnl.py::calculate_best_worst_case_with_basis_drift()`        |
+| `FN_`  | Function        | `FN_getPriceWithLiquidity`             | `src/pricing.py::get_option_price_with_liquidity()`               |
+| `FN_`  | Function        | `FN_getPriceFromDb`                    | `src/pricing.py::get_option_price_from_db()`                      |
+| `FN_`  | Function        | `FN_findNearestRow`                    | `src/pricing.py::_find_nearest_row()`                             |
 | `TAB_` | Streamlit tab   | `TAB_historical`                       | Tab 1 in `strategy_calculator_simple.py`                           |
 | `TAB_` | Streamlit tab   | `TAB_liveTrade`                        | Tab 2 in `strategy_calculator_simple.py`                           |
 | `TAB_` | Streamlit tab   | `TAB_priceOverlay`                     | Tab 3 in `strategy_calculator_simple.py`                           |
@@ -70,3 +72,7 @@ classDef tab       fill:#e0d0f9,stroke:#8e44ad,color:#333
 | `flow-live-trading.mmd`         | Live paper trading flow                         |
 | `flow-strike-scanner.mmd`       | Strike pair scanning & ranking                  |
 | `flow-price-discovery.mmd`      | Liquidity-aware price lookup                    |
+| `strategy-overview.mmd`         | How the arbitrage strategy works                |
+| `flow-position-construction.mmd`| 4-leg position: direction, qty ratios, margin   |
+| `flow-pnl-settlement.mmd`      | P&L formulas and settlement calculation         |
+| `flow-best-worst-case.mmd`     | Best/worst case grid search with basis drift    |

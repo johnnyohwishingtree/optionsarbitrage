@@ -1,0 +1,56 @@
+%% Strategy Overview — How the Arbitrage Works
+%% Updated: 2026-02-13
+%% This diagram explains the BUSINESS STRATEGY, not the code structure.
+
+flowchart TD
+    subgraph Premise["Premise: Correlated Symbols"]
+        CORRELATION["SPY and SPX move together\n~98.9% intraday correlation\nSPX = ~10 × SPY"]:::data
+        GAP["But option PRICES diverge\nDifferent liquidity, contract specs\nCarry costs, dividend expectations"]:::data
+        OPPORTUNITY["Arbitrage: capture the pricing gap\nwhile hedging directional risk"]:::function
+        CORRELATION --> GAP --> OPPORTUNITY
+    end
+
+    subgraph Position["4-Leg Market-Neutral Position"]
+        direction LR
+        LEG_SC["Leg 1: SELL calls\non one symbol"]:::external
+        LEG_BC["Leg 2: BUY calls\non the other symbol"]:::function
+        LEG_SP["Leg 3: SELL puts\non one symbol"]:::external
+        LEG_BP["Leg 4: BUY puts\non the other symbol"]:::function
+    end
+
+    subgraph Ratios["Quantity Ratios"]
+        RATIO_SPX["SPY/SPX pair:\n10 SPY options : 1 SPX option\n(SPX is 10× the notional)"]:::data
+        RATIO_XSP["SPY/XSP or XSP/SPX pair:\n1:1 ratio"]:::data
+    end
+
+    subgraph Economics["How You Make Money"]
+        CREDIT["At entry: collect NET CREDIT\ncredit = sell_premium - buy_premium\nacross all 4 legs × qty × 100"]:::function
+        SETTLEMENT["At 0DTE expiration:\neach leg settles to intrinsic value\nCall: max(0, price - strike)\nPut: max(0, strike - price)"]:::function
+        LOCKSTEP["If symbols move in lockstep:\nsold and bought legs cancel out\nyou keep most of the credit"]:::function
+        CREDIT --> SETTLEMENT --> LOCKSTEP
+    end
+
+    subgraph Risk["The Risk: Basis Drift"]
+        DRIFT["SPX/SPY ratio can drift ±0.10% intraday\nThis breaks the perfect hedge"]:::external
+        WORST_CASE["Grid search tests 150 scenarios:\n50 price points × 3 drift levels\nWorst case P&L = your max risk"]:::function
+        DRIFT --> WORST_CASE
+    end
+
+    subgraph StrikeSelection["Strike Selection"]
+        MONEYNESS["Strikes must match by moneyness\nmoneyness = (strike - price) / price\nThreshold: within 0.05%"]:::function
+        SCANNER["Scanner brute-forces all pairs\nTolerance: 0.5% moneyness match\nRanks by safety / profit / risk-reward"]:::tab
+        MONEYNESS --> SCANNER
+    end
+
+    OPPORTUNITY --> Position
+    Position --> Ratios
+    Ratios --> Economics
+    Economics --> Risk
+    Risk --> StrikeSelection
+
+    %% Style definitions
+    classDef external  fill:#f9d0d0,stroke:#c0392b,color:#333
+    classDef module    fill:#d0e0f9,stroke:#2471a3,color:#333
+    classDef function  fill:#d0f9d0,stroke:#27ae60,color:#333
+    classDef data      fill:#f9e4d0,stroke:#e67e22,color:#333
+    classDef tab       fill:#e0d0f9,stroke:#8e44ad,color:#333

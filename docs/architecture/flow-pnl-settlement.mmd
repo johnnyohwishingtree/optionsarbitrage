@@ -1,0 +1,51 @@
+%% Flow: P&L and Settlement Calculations
+%% Updated: 2026-02-13
+%% Source: src/pnl.py
+
+flowchart LR
+    subgraph FN_calcSettlement["FN_calcSettlement — Intrinsic Value"]
+        S_INPUT["underlying_price, strike, right"]:::function
+        S_CALL{"right == C?"}:::function
+        S_CALL_CALC["max(0, price - strike)"]:::function
+        S_PUT_CALC["max(0, strike - price)"]:::function
+
+        S_INPUT --> S_CALL
+        S_CALL -->|"Call"| S_CALL_CALC
+        S_CALL -->|"Put"| S_PUT_CALC
+    end
+
+    subgraph FN_calcOptionPnl["FN_calcOptionPnl — Per-Leg P&L"]
+        P_INPUT["entry_price, exit_price\naction, quantity"]:::function
+        P_ACTION{"action?"}:::function
+        P_BUY["(exit - entry) × qty × 100"]:::function
+        P_SELL["(entry - exit) × qty × 100"]:::function
+
+        P_INPUT --> P_ACTION
+        P_ACTION -->|"BUY"| P_BUY
+        P_ACTION -->|"SELL"| P_SELL
+    end
+
+    subgraph FullPosition["Full Position P&L at Settlement"]
+        ENTRY["Entry: 4 legs with prices\nSell call, Buy call\nSell put, Buy put"]:::tab
+
+        CREDIT["Entry credit per leg\ncredit = sell_price × sell_qty × 100\n        - buy_price × buy_qty × 100"]:::function
+
+        INTRINSIC["At expiration: get underlying prices\nFN_calcSettlement for each leg"]:::function
+
+        LEG_PNL["FN_calcOptionPnl per leg\nexit_price = intrinsic value\naction = BUY or SELL"]:::function
+
+        NET["Net P&L = sum of all 4 legs\n= total credit received\n  + total settlement cost"]:::function
+
+        ENTRY --> CREDIT
+        ENTRY --> INTRINSIC
+        INTRINSIC --> LEG_PNL
+        CREDIT --> NET
+        LEG_PNL --> NET
+    end
+
+    %% Style definitions
+    classDef external  fill:#f9d0d0,stroke:#c0392b,color:#333
+    classDef module    fill:#d0e0f9,stroke:#2471a3,color:#333
+    classDef function  fill:#d0f9d0,stroke:#27ae60,color:#333
+    classDef data      fill:#f9e4d0,stroke:#e67e22,color:#333
+    classDef tab       fill:#e0d0f9,stroke:#8e44ad,color:#333

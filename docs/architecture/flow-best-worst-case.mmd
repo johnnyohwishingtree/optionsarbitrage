@@ -1,0 +1,66 @@
+%% Flow: Best/Worst Case Grid Search — FN_calcBestWorst
+%% Updated: 2026-02-13
+%% Source: src/pnl.py::calculate_best_worst_case_with_basis_drift()
+
+flowchart TD
+    INPUTS["Inputs\nentry_spy_price, entry_spx_price\nspy_strike, spx_strike\ncall/put direction, prices, quantities\nshow_calls, show_puts"]:::function
+
+    RATIO["Compute entry ratio\nentry_ratio = entry_spx_price / entry_spy_price"]:::function
+
+    GRID_SETUP["Grid setup\n50 SYM1 prices: ±5% from entry\n3 basis drifts: -0.10%, 0%, +0.10%\nTotal: 150 scenarios"]:::function
+
+    LOOP_PRICE["For each SYM1 price point\nspy_px = spy_min + i × step"]:::function
+
+    LOOP_DRIFT["For each basis drift multiplier\n0.999, 1.000, 1.001"]:::function
+
+    CALC_SYM2["Derive SYM2 price\nspx_px = spy_px × entry_ratio × basis_mult\n(lockstep movement + drift)"]:::function
+
+    SETTLE["Calculate settlement values\nFN_calcSettlement for each leg:\nspy_call = max(0, spy_px - spy_strike)\nspx_call = max(0, spx_px - spx_strike)\nspy_put = max(0, spy_strike - spy_px)\nspx_put = max(0, spx_strike - spx_px)"]:::function
+
+    DIRECTION{"Check call/put\ndirections"}:::function
+
+    CALL_PNL["Call leg P&L\nBased on call_direction:\nSELL one symbol, BUY the other\nFN_calcOptionPnl per leg"]:::function
+
+    PUT_PNL["Put leg P&L\nBased on put_direction:\nSELL one symbol, BUY the other\nFN_calcOptionPnl per leg"]:::function
+
+    SUM["Sum scenario P&L\nscenario_pnl = call_pnl + put_pnl\n\ntotal_credit = call_credit + put_credit\ntotal_settle = call_settle_cost + put_settle_cost"]:::function
+
+    TRACK_BEST{"scenario_pnl >\nbest_pnl?"}:::function
+    TRACK_WORST{"scenario_pnl <\nworst_pnl?"}:::function
+
+    UPDATE_BEST["Update best_scenario\nnet_pnl, spy_price, spx_price\nbasis_drift %, breakdown"]:::function
+
+    UPDATE_WORST["Update worst_scenario\nnet_pnl, spy_price, spx_price\nbasis_drift %, breakdown"]:::function
+
+    NEXT["Next iteration"]:::function
+
+    RETURN["Return (best_scenario, worst_scenario)\nEach contains:\nnet_pnl, spy_price, spx_price\nbasis_drift %, per-leg breakdown"]:::function
+
+    INPUTS --> RATIO
+    RATIO --> GRID_SETUP
+    GRID_SETUP --> LOOP_PRICE
+    LOOP_PRICE --> LOOP_DRIFT
+    LOOP_DRIFT --> CALC_SYM2
+    CALC_SYM2 --> SETTLE
+    SETTLE --> DIRECTION
+    DIRECTION -->|"show_calls"| CALL_PNL
+    DIRECTION -->|"show_puts"| PUT_PNL
+    CALL_PNL --> SUM
+    PUT_PNL --> SUM
+    SUM --> TRACK_BEST
+    TRACK_BEST -->|"yes"| UPDATE_BEST
+    TRACK_BEST -->|"no"| TRACK_WORST
+    UPDATE_BEST --> TRACK_WORST
+    TRACK_WORST -->|"yes"| UPDATE_WORST
+    TRACK_WORST -->|"no"| NEXT
+    UPDATE_WORST --> NEXT
+    NEXT -->|"more drifts"| LOOP_DRIFT
+    NEXT -->|"more prices"| LOOP_PRICE
+    NEXT -->|"done"| RETURN
+
+    %% Style definitions
+    classDef external  fill:#f9d0d0,stroke:#c0392b,color:#333
+    classDef module    fill:#d0e0f9,stroke:#2471a3,color:#333
+    classDef function  fill:#d0f9d0,stroke:#27ae60,color:#333
+    classDef data      fill:#f9e4d0,stroke:#e67e22,color:#333
+    classDef tab       fill:#e0d0f9,stroke:#8e44ad,color:#333

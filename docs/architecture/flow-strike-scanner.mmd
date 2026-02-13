@@ -1,34 +1,43 @@
 %% Flow: Strike Scanner (Tab 5)
-%% Updated: 2026-02-07
+%% Updated: 2026-02-13
 
 flowchart TD
-    CONFIG["Scanner config\nOption type: calls / puts\nLiquidity filter threshold\nSymbol pair from sidebar"]:::tab
+    CONFIG["Scanner config\nOption type: calls / puts\nMin volume threshold (default: 10)\nSymbol pair from sidebar"]:::tab
 
-    MATCH["Match strike pairs by moneyness\nFor each SPY strike, find SYM2 strike where:\nabs(sym2_strike - spy_strike × open_ratio) / target < 0.5%"]:::function
+    MATCH["Match strike pairs by moneyness\nFor each SYM1 strike, find SYM2 strike where:\nabs(sym2_strike - sym1_strike × open_ratio)\n  / (sym1_strike × open_ratio) < 0.5%"]:::function
 
-    FILTER_LIQ["Filter liquidity\nRemove strikes with daily volume < threshold\nOnly keep bars where volume > 0"]:::function
+    FILTER_LIQ["Filter liquidity\nBoth legs must have total daily\nvolume >= min_volume threshold\nSkip 0-volume bars (stale)"]:::function
 
-    NORMALIZE["Normalize prices\nSPX_normalized = SPX_price / open_ratio\nMakes SPY vs SPX comparable"]:::function
+    NORMALIZE["Normalize SYM2 prices\nsym2_normalized = sym2_price / open_ratio\nwhere open_ratio = sym2_open / sym1_open\nMakes prices directly comparable"]:::function
 
-    CALC_SPREAD["Calculate spread per pair\nspread = normalized_sym2 - sym1\nTrack over all 1-min bars"]:::function
+    CALC_SPREAD["Calculate spread per pair per minute\nspread = sym2_normalized - sym1_price\nspread_pct = spread / sym1_price × 100\nOnly at times where both have volume > 0"]:::function
 
-    BEST_WORST_SCAN["FN_calcBestWorst per pair\nAt max spread time and best worst-case time\nGrid search: 50 prices × 3 drifts"]:::function
+    BEST_WORST_SCAN["FN_calcBestWorst per pair\nAt max spread time AND best worst-case time\nGrid search: 50 prices × 3 basis drifts"]:::function
 
-    RANK["Rank results\nSort by: safety (worst P&L)\nor profit (credit)\nor risk-reward ratio"]:::function
+    RANK_TABS["Three ranking views"]:::tab
 
-    RESULTS["Display results table\nStrike pair / Max spread / Credit\nBest/worst P&L / Time"]:::tab
+    RANK_SAFETY["Safety: sort by\nBest Worst-Case P&L\n(highest first)"]:::function
+    RANK_PROFIT["Profit: sort by\nCredit received\n(highest first)"]:::function
+    RANK_RR["Risk/Reward: sort by\ncredit / max_risk\n(highest ratio first)"]:::function
 
-    APPLY["Apply button\nSets session_state:\nselected_spy_strike\nselected_spx_strike\nselected_entry_time\nSwitches to TAB_historical"]:::tab
+    RESULTS["Display results table\nSYM1 strike / SYM2 strike\nMax spread / Credit / Best-worst P&L\nEntry time / Apply button"]:::tab
+
+    APPLY["Apply button\nSets session_state:\nselected_spy_strike\nselected_spx_strike\nselected_entry_time\ndirection\nSwitches to TAB_historical"]:::tab
 
     CONFIG --> MATCH
     MATCH --> FILTER_LIQ
     FILTER_LIQ --> NORMALIZE
     NORMALIZE --> CALC_SPREAD
     CALC_SPREAD --> BEST_WORST_SCAN
-    BEST_WORST_SCAN --> RANK
-    RANK --> RESULTS
+    BEST_WORST_SCAN --> RANK_TABS
+    RANK_TABS --> RANK_SAFETY
+    RANK_TABS --> RANK_PROFIT
+    RANK_TABS --> RANK_RR
+    RANK_SAFETY --> RESULTS
+    RANK_PROFIT --> RESULTS
+    RANK_RR --> RESULTS
     RESULTS -->|"user clicks Apply"| APPLY
-    APPLY -->|"session_state"| TAB_HISTORICAL["TAB_historical"]:::tab
+    APPLY -->|"session_state"| TAB_historical["Tab 1: Historical Analysis"]:::tab
 
     %% Style definitions
     classDef external  fill:#f9d0d0,stroke:#c0392b,color:#333
