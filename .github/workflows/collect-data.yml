@@ -15,7 +15,7 @@ on:
 jobs:
   collect:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 20
 
     steps:
       - name: Checkout repo
@@ -70,21 +70,14 @@ jobs:
           docker logs ib-gateway 2>&1
           exit 1
 
-      - name: Collect underlying data
-        continue-on-error: true
+      - name: Collect market data
         run: |
           python collect_market_data.py \
             --date ${{ steps.date.outputs.date }} \
-            --symbols SPY,SPX,XSP
-        timeout-minutes: 10
-
-      - name: Collect options BID_ASK data
-        run: |
-          python collect_bidask_fallback.py \
-            --date ${{ steps.date.outputs.date }} \
-            --symbols XSP,SPX \
+            --symbols SPY,SPX,XSP \
+            --data-type bidask \
             --range 0.03
-        timeout-minutes: 30
+        timeout-minutes: 10
 
       - name: Verify data files
         run: |

@@ -209,15 +209,10 @@ def get_option_price_from_db(df_options, symbol, strike, right, entry_time):
     Look up option price from database at specified time.
     If exact time not found, returns price from nearest available time >= entry_time.
 
-    Args:
-        df_options: DataFrame with columns [symbol, strike, right, time, open, high, low, close, volume]
-        symbol: 'SPY' or 'SPX'
-        strike: Strike price (e.g., 698 for SPY, 6985 for SPX)
-        right: 'C' for call, 'P' for put
-        entry_time: pandas Timestamp for entry time
+    Works with both TRADES data (uses 'open' column) and BID_ASK data (uses 'midpoint' column).
 
     Returns:
-        float: Option price from database (open price at entry time or nearest after)
+        float: Option price at entry time or nearest after
         None if contract not found in database
     """
     # Filter to contract (symbol, strike, right)
@@ -230,25 +225,25 @@ def get_option_price_from_db(df_options, symbol, strike, right, entry_time):
     contract_data = df_options[contract_mask]
 
     if len(contract_data) == 0:
-        # Contract doesn't exist in database at all
         return None
+
+    # Use 'midpoint' for BID_ASK data, 'open' for TRADES data
+    price_col = 'midpoint' if 'midpoint' in df_options.columns else 'open'
 
     # Try exact time match first
     exact_match = contract_data[contract_data['time'] == entry_time]
     if len(exact_match) > 0:
-        return exact_match.iloc[0]['open']
+        return exact_match.iloc[0][price_col]
 
     # If no exact match, find nearest timestamp >= entry_time
     future_data = contract_data[contract_data['time'] >= entry_time]
     if len(future_data) > 0:
-        # Use first available data point after entry time
         nearest = future_data.sort_values('time').iloc[0]
-        return nearest['open']
+        return nearest[price_col]
 
     # If no future data, use the last available data point
-    # (This handles case where entry_time is after all data)
     nearest = contract_data.sort_values('time').iloc[-1]
-    return nearest['open']
+    return nearest[price_col]
 
 
 def _find_nearest_row(data, entry_time, prefer_liquid=False, volume_col='volume'):
@@ -458,10 +453,7 @@ df_options = None
 if os.path.exists(OPTIONS_FILE):
     df_options = pd.read_csv(OPTIONS_FILE)
     df_options['time'] = pd.to_datetime(df_options['time'], utc=True)
-    st.sidebar.success(f"✅ Loaded {len(df_options)} option price records")
-else:
-    st.sidebar.warning(f"⚠️  Option price database not found: {OPTIONS_FILE}")
-    st.sidebar.info("Calculator will show error if strike prices are changed")
+    st.sidebar.success(f"✅ Loaded {len(df_options)} option TRADES records")
 
 # Load BID_ASK data for selected date (optional)
 BIDASK_FILE = f'data/options_bidask_{selected_date}.csv'
@@ -470,6 +462,10 @@ if os.path.exists(BIDASK_FILE):
     df_bidask = pd.read_csv(BIDASK_FILE)
     df_bidask['time'] = pd.to_datetime(df_bidask['time'], utc=True)
     st.sidebar.success(f"✅ Loaded {len(df_bidask)} bid/ask records")
+
+if df_options is None and df_bidask is None:
+    st.sidebar.warning(f"⚠️  No option data found for {selected_date}")
+    st.sidebar.info("Need options_data or options_bidask CSV")
 
 # Symbol pair selection
 st.sidebar.subheader("🔄 Symbol Pair")
@@ -816,7 +812,7 @@ best_combo['put_direction'] = put_direction
 # Look up option prices from database at entry time
 entry_time = entry_spy['time']
 
-if df_options is not None:
+if df_options is not None or df_bidask is not None:
     # Look up all four option legs with liquidity info
     spy_call_liq = get_option_price_with_liquidity(df_options, df_bidask, SYM1, spy_strike, 'C', entry_time)
     spx_call_liq = get_option_price_with_liquidity(df_options, df_bidask, SYM2, spx_strike, 'C', entry_time)
@@ -929,9 +925,9 @@ with tab1:
     st.markdown("Using **real market prices** from historical trades")
 
     # Check if options data is available for this tab
-    if df_options is None:
-        st.error("❌ Option price database not found. Cannot display historical analysis.")
-        st.info(f"**Required file:** {OPTIONS_FILE}")
+    if df_options is None and df_bidask is None:
+        st.error("❌ No option price data found. Cannot display historical analysis.")
+        st.info(f"**Required:** {OPTIONS_FILE} or {BIDASK_FILE}")
         st.info("**To use Historical Analysis tab:**")
         st.write("1. Click '🔄 Update Data for Selected Date' in the sidebar, OR")
         st.write("2. Wait for the background data collection to complete")
@@ -2300,9 +2296,22 @@ with tab2:
 with tab3:
     st.markdown(f"**Overlay {SYM1} vs {SYM2} option prices** to find arbitrage opportunities")
 
-    if df_options is None:
-        st.error("❌ Option price database not found. Cannot display overlay chart.")
-        st.info(f"**Required file:** {OPTIONS_FILE}")
+    # Determine data source: prefer TRADES (df_options), fall back to BID_ASK (df_bidask)
+    _ov_source = None
+    _ov_price_col = None
+    _ov_has_volume = False
+    if df_options is not None:
+        _ov_source = df_options
+        _ov_price_col = 'close'
+        _ov_has_volume = True
+    elif df_bidask is not None:
+        _ov_source = df_bidask
+        _ov_price_col = 'midpoint'
+        _ov_has_volume = False
+
+    if _ov_source is None:
+        st.error("❌ No option price data found. Cannot display overlay chart.")
+        st.info(f"**Required:** {OPTIONS_FILE} or {BIDASK_FILE}")
     else:
         # Calculate open ratio from underlying prices at market open
         open_spy = spy_df.iloc[0]['close']
@@ -2310,6 +2319,8 @@ with tab3:
         open_ratio = open_spx / open_spy
 
         st.info(f"**Open Ratio:** {SYM2}/{SYM1} = {open_ratio:.4f} ({SYM1}: ${open_spy:.2f}, {SYM2}: ${open_spx:.2f})")
+        if not _ov_has_volume:
+            st.caption("Using BID_ASK midpoint prices (no TRADES data available)")
 
         # Option type selection
         col1, col2 = st.columns(2)
@@ -2319,16 +2330,16 @@ with tab3:
             st.caption(f"Using strikes: {SYM1} {spy_strike} / {SYM2} {spx_strike}")
 
         # Get time series data for both options
-        spy_opt_data = df_options[
-            (df_options['symbol'] == SYM1) &
-            (df_options['strike'] == spy_strike) &
-            (df_options['right'] == overlay_right)
+        spy_opt_data = _ov_source[
+            (_ov_source['symbol'] == SYM1) &
+            (_ov_source['strike'] == spy_strike) &
+            (_ov_source['right'] == overlay_right)
         ].copy()
 
-        spx_opt_data = df_options[
-            (df_options['symbol'] == SYM2) &
-            (df_options['strike'] == spx_strike) &
-            (df_options['right'] == overlay_right)
+        spx_opt_data = _ov_source[
+            (_ov_source['symbol'] == SYM2) &
+            (_ov_source['strike'] == spx_strike) &
+            (_ov_source['right'] == overlay_right)
         ].copy()
 
         if spy_opt_data.empty:
@@ -2340,34 +2351,41 @@ with tab3:
             spy_opt_data = spy_opt_data.sort_values('time')
             spx_opt_data = spx_opt_data.sort_values('time')
 
-            # Filter out zero-volume bars (stale carried-forward prices from IB)
-            spy_opt_liquid = spy_opt_data[spy_opt_data['volume'] > 0].copy()
-            spx_opt_liquid = spx_opt_data[spx_opt_data['volume'] > 0].copy()
+            if _ov_has_volume:
+                # Filter out zero-volume bars (stale carried-forward prices from IB)
+                spy_opt_liquid = spy_opt_data[spy_opt_data['volume'] > 0].copy()
+                spx_opt_liquid = spx_opt_data[spx_opt_data['volume'] > 0].copy()
 
-            # Show how many bars were filtered
-            spy_filtered = len(spy_opt_data) - len(spy_opt_liquid)
-            spx_filtered = len(spx_opt_data) - len(spx_opt_liquid)
-            if spy_filtered > 0 or spx_filtered > 0:
-                st.caption(f"Filtered out {spy_filtered} {SYM1} + {spx_filtered} {SYM2} zero-volume (stale) bars")
+                # Show how many bars were filtered
+                spy_filtered = len(spy_opt_data) - len(spy_opt_liquid)
+                spx_filtered = len(spx_opt_data) - len(spx_opt_liquid)
+                if spy_filtered > 0 or spx_filtered > 0:
+                    st.caption(f"Filtered out {spy_filtered} {SYM1} + {spx_filtered} {SYM2} zero-volume (stale) bars")
 
-            if spy_opt_liquid.empty:
-                st.warning(f"{SYM1} {spy_strike}{overlay_right} has no bars with volume > 0 — all prices are stale")
-            elif spx_opt_liquid.empty:
-                st.warning(f"{SYM2} {spx_strike}{overlay_right} has no bars with volume > 0 — all prices are stale")
+                if spy_opt_liquid.empty:
+                    st.warning(f"{SYM1} {spy_strike}{overlay_right} has no bars with volume > 0 — all prices are stale")
+                elif spx_opt_liquid.empty:
+                    st.warning(f"{SYM2} {spx_strike}{overlay_right} has no bars with volume > 0 — all prices are stale")
+            else:
+                # BID_ASK data: filter by valid quotes (bid > 0 and ask > 0)
+                spy_opt_liquid = spy_opt_data[(spy_opt_data['bid'] > 0) & (spy_opt_data['ask'] > 0)].copy()
+                spx_opt_liquid = spx_opt_data[(spx_opt_data['bid'] > 0) & (spx_opt_data['ask'] > 0)].copy()
+                spy_filtered = len(spy_opt_data) - len(spy_opt_liquid)
+                spx_filtered = len(spx_opt_data) - len(spx_opt_liquid)
 
             # Normalize SYM2 price by dividing by the open ratio
-            spx_opt_liquid['normalized_close'] = spx_opt_liquid['close'] / open_ratio
+            spx_opt_liquid[f'normalized_{_ov_price_col}'] = spx_opt_liquid[_ov_price_col] / open_ratio
 
             # Merge on time to align data points (only liquid bars)
             merged = pd.merge(
-                spy_opt_liquid[['time', 'close']].rename(columns={'close': 'spy_price'}),
-                spx_opt_liquid[['time', 'normalized_close']].rename(columns={'normalized_close': 'spx_normalized'}),
+                spy_opt_liquid[['time', _ov_price_col]].rename(columns={_ov_price_col: 'spy_price'}),
+                spx_opt_liquid[['time', f'normalized_{_ov_price_col}']].rename(columns={f'normalized_{_ov_price_col}': 'spx_normalized'}),
                 on='time',
                 how='inner'
             )
 
             if merged.empty:
-                st.warning(f"No overlapping time periods with volume > 0 found between {SYM1} and {SYM2} data")
+                st.warning(f"No overlapping time periods found between {SYM1} and {SYM2} data")
             else:
                 # Calculate the spread (gap) - SYM2 normalized minus SYM1
                 # Positive = SYM2 more expensive (sell SYM2, buy SYM1)
@@ -2633,7 +2651,7 @@ with tab3:
                     st.success(f"**{signal}** - {SYM1} is overpriced relative to {SYM2} by ${abs(max_spread_row['spread']):.2f}")
 
                 # Credit calculation at max spread time
-                spx_price_at_max = spx_opt_data[spx_opt_data['time'] == max_spread_row['time']]['close'].iloc[0]
+                spx_price_at_max = spx_opt_data[spx_opt_data['time'] == max_spread_row['time']][_ov_price_col].iloc[0]
                 spy_price_at_max = max_spread_row['spy_price']
 
                 # Calculate potential credit ({QTY_RATIO} SYM1 vs 1 SYM2)
@@ -2650,7 +2668,7 @@ with tab3:
                 st.markdown("---")
                 st.subheader("🛡️ Safest Entry (Best Worst-Case)")
 
-                spx_price_at_safe = spx_opt_data[spx_opt_data['time'] == best_worst_row['time']]['close'].iloc[0]
+                spx_price_at_safe = spx_opt_data[spx_opt_data['time'] == best_worst_row['time']][_ov_price_col].iloc[0]
                 spy_price_at_safe = best_worst_row['spy_price']
 
                 if best_worst_row['spread'] > 0:
@@ -3008,9 +3026,22 @@ with tab4:
 with tab5:
     st.markdown("**Scan all strikes** to find the best arbitrage opportunity")
 
-    if df_options is None:
-        st.error("❌ Option price database not found. Cannot scan strikes.")
-        st.info(f"**Required file:** {OPTIONS_FILE}")
+    # Determine data source for scanner
+    _sc_source = None
+    _sc_price_col = None
+    _sc_has_volume = False
+    if df_options is not None:
+        _sc_source = df_options
+        _sc_price_col = 'close'
+        _sc_has_volume = True
+    elif df_bidask is not None:
+        _sc_source = df_bidask
+        _sc_price_col = 'midpoint'
+        _sc_has_volume = False
+
+    if _sc_source is None:
+        st.error("❌ No option price data found. Cannot scan strikes.")
+        st.info(f"**Required:** {OPTIONS_FILE} or {BIDASK_FILE}")
     else:
         # Get open ratio
         open_spy = spy_df.iloc[0]['close']
@@ -3018,6 +3049,8 @@ with tab5:
         open_ratio = open_spx / open_spy
 
         st.info(f"**Open Ratio:** {SYM2}/{SYM1} = {open_ratio:.4f}")
+        if not _sc_has_volume:
+            st.caption("Using BID_ASK midpoint prices (no TRADES data available)")
 
         # Option type selection
         scanner_right = st.selectbox("Option Type to Scan", ["P", "C"],
@@ -3025,19 +3058,22 @@ with tab5:
                                      key="scanner_right")
 
         # Get all unique strikes from the data
-        spy_strikes_list = sorted(df_options[df_options['symbol'] == SYM1]['strike'].unique())
-        spx_strikes_list = sorted(df_options[df_options['symbol'] == SYM2]['strike'].unique())
+        spy_strikes_list = sorted(_sc_source[_sc_source['symbol'] == SYM1]['strike'].unique())
+        spx_strikes_list = sorted(_sc_source[_sc_source['symbol'] == SYM2]['strike'].unique())
 
         st.caption(f"Found {len(spy_strikes_list)} {SYM1} strikes and {len(spx_strikes_list)} {SYM2} strikes")
 
-        # Liquidity filtering controls
-        scanner_col1, scanner_col2 = st.columns(2)
-        with scanner_col1:
-            hide_illiquid = st.checkbox("Hide illiquid strikes", value=True,
-                                        help="Filter out strikes with total daily volume below threshold")
-        with scanner_col2:
-            min_volume = st.number_input("Min Total Volume", value=10, min_value=0, step=5,
-                                          help="Minimum total daily volume across all bars for a contract")
+        # Liquidity filtering controls (only shown when volume data is available)
+        hide_illiquid = False
+        min_volume = 0
+        if _sc_has_volume:
+            scanner_col1, scanner_col2 = st.columns(2)
+            with scanner_col1:
+                hide_illiquid = st.checkbox("Hide illiquid strikes", value=True,
+                                            help="Filter out strikes with total daily volume below threshold")
+            with scanner_col2:
+                min_volume = st.number_input("Min Total Volume", value=10, min_value=0, step=5,
+                                              help="Minimum total daily volume across all bars for a contract")
 
         if st.button("🔍 Scan All Strike Pairs", type="primary", use_container_width=True):
             results = []
@@ -3062,43 +3098,52 @@ with tab5:
                 progress_bar.progress((idx + 1) / total_pairs)
                 status_text.text(f"Scanning {SYM1} {spy_s} / {SYM2} {spx_s}...")
 
-                # Get data for this strike pair
-                spy_opt = df_options[
-                    (df_options['symbol'] == SYM1) &
-                    (df_options['strike'] == spy_s) &
-                    (df_options['right'] == scanner_right)
+                # Get data for this strike pair from the active data source
+                spy_opt = _sc_source[
+                    (_sc_source['symbol'] == SYM1) &
+                    (_sc_source['strike'] == spy_s) &
+                    (_sc_source['right'] == scanner_right)
                 ].copy()
 
-                spx_opt = df_options[
-                    (df_options['symbol'] == SYM2) &
-                    (df_options['strike'] == spx_s) &
-                    (df_options['right'] == scanner_right)
+                spx_opt = _sc_source[
+                    (_sc_source['symbol'] == SYM2) &
+                    (_sc_source['strike'] == spx_s) &
+                    (_sc_source['right'] == scanner_right)
                 ].copy()
 
                 if spy_opt.empty or spx_opt.empty:
                     continue
 
-                # Compute total daily volume per contract
-                spy_total_vol = int(spy_opt['volume'].sum())
-                spx_total_vol = int(spx_opt['volume'].sum())
+                if _sc_has_volume:
+                    # TRADES data: filter by volume
+                    spy_total_vol = int(spy_opt['volume'].sum())
+                    spx_total_vol = int(spx_opt['volume'].sum())
 
-                # Filter illiquid strikes
-                if hide_illiquid and (spy_total_vol < min_volume or spx_total_vol < min_volume):
-                    continue
+                    if hide_illiquid and (spy_total_vol < min_volume or spx_total_vol < min_volume):
+                        continue
 
-                # Filter out zero-volume bars (stale prices)
-                spy_opt = spy_opt[spy_opt['volume'] > 0].copy()
-                spx_opt = spx_opt[spx_opt['volume'] > 0].copy()
+                    spy_opt = spy_opt[spy_opt['volume'] > 0].copy()
+                    spx_opt = spx_opt[spx_opt['volume'] > 0].copy()
 
-                if spy_opt.empty or spx_opt.empty:
-                    continue
+                    if spy_opt.empty or spx_opt.empty:
+                        continue
+                else:
+                    # BID_ASK data: filter by valid quotes
+                    spy_opt = spy_opt[(spy_opt['bid'] > 0) & (spy_opt['ask'] > 0)].copy()
+                    spx_opt = spx_opt[(spx_opt['bid'] > 0) & (spx_opt['ask'] > 0)].copy()
+                    spy_total_vol = len(spy_opt)
+                    spx_total_vol = len(spx_opt)
 
-                # Sort and normalize
+                    if spy_opt.empty or spx_opt.empty:
+                        continue
+
+                # Sort
                 spy_opt = spy_opt.sort_values('time')
                 spx_opt = spx_opt.sort_values('time')
 
-                # Use midpoint prices from BID_ASK data when available
-                if df_bidask is not None:
+                # Use midpoint from BID_ASK when we have both TRADES + BID_ASK
+                _using_midpoint = False
+                if _sc_has_volume and df_bidask is not None:
                     spy_ba = df_bidask[
                         (df_bidask['symbol'] == SYM1) &
                         (df_bidask['strike'] == spy_s) &
@@ -3111,7 +3156,6 @@ with tab5:
                     ].copy()
 
                     if not spy_ba.empty and not spx_ba.empty:
-                        # Use midpoint for spread calculation
                         spy_ba = spy_ba.sort_values('time')
                         spx_ba = spx_ba.sort_values('time')
 
@@ -3130,24 +3174,16 @@ with tab5:
                             how='inner'
                         )
                         _using_midpoint = True
-                    else:
-                        spx_opt['normalized_close'] = spx_opt['close'] / open_ratio
-                        merged_scan = pd.merge(
-                            spy_opt[['time', 'close']].rename(columns={'close': 'spy_price'}),
-                            spx_opt[['time', 'normalized_close']].rename(columns={'normalized_close': 'spx_normalized'}),
-                            on='time',
-                            how='inner'
-                        )
-                        _using_midpoint = False
-                else:
-                    spx_opt['normalized_close'] = spx_opt['close'] / open_ratio
+
+                if not _using_midpoint:
+                    # Use the primary data source directly
+                    spx_opt[f'normalized_{_sc_price_col}'] = spx_opt[_sc_price_col] / open_ratio
                     merged_scan = pd.merge(
-                        spy_opt[['time', 'close']].rename(columns={'close': 'spy_price'}),
-                        spx_opt[['time', 'normalized_close']].rename(columns={'normalized_close': 'spx_normalized'}),
+                        spy_opt[['time', _sc_price_col]].rename(columns={_sc_price_col: 'spy_price'}),
+                        spx_opt[['time', f'normalized_{_sc_price_col}']].rename(columns={f'normalized_{_sc_price_col}': 'spx_normalized'}),
                         on='time',
                         how='inner'
                     )
-                    _using_midpoint = False
 
                 if merged_scan.empty or len(merged_scan) < 5:
                     continue
@@ -3180,14 +3216,14 @@ with tab5:
                 best_worst_row_scan = merged_scan.loc[best_worst_idx_scan]
 
                 # Get actual SYM2 price for credit calculation (use midpoint when available)
-                if df_bidask is not None and _using_midpoint:
+                if _using_midpoint:
                     _spx_at_max = spx_ba[spx_ba['time'] == max_spread_row_scan['time']]
                     if not _spx_at_max.empty:
                         spx_price_at_max_scan = _spx_at_max['midpoint'].iloc[0]
                     else:
-                        spx_price_at_max_scan = spx_opt[spx_opt['time'] == max_spread_row_scan['time']]['close'].iloc[0]
+                        spx_price_at_max_scan = spx_opt[spx_opt['time'] == max_spread_row_scan['time']][_sc_price_col].iloc[0]
                 else:
-                    spx_price_at_max_scan = spx_opt[spx_opt['time'] == max_spread_row_scan['time']]['close'].iloc[0]
+                    spx_price_at_max_scan = spx_opt[spx_opt['time'] == max_spread_row_scan['time']][_sc_price_col].iloc[0]
                 if max_spread_row_scan['spread'] > 0:
                     credit_scan = (spx_price_at_max_scan * 1 * 100) - (max_spread_row_scan['spy_price'] * QTY_RATIO * 100)
                 else:
@@ -3208,7 +3244,7 @@ with tab5:
 
                 # Look up option prices at the best worst-case time
                 # Use midpoint from BID_ASK data when available
-                if df_bidask is not None and _using_midpoint:
+                if _using_midpoint:
                     spy_ba_at_time = spy_ba.iloc[(spy_ba['time'] - best_worst_time).abs().argsort()[:1]]
                     spx_ba_at_time = spx_ba.iloc[(spx_ba['time'] - best_worst_time).abs().argsort()[:1]]
                     spy_opt_price_scan = spy_ba_at_time['midpoint'].iloc[0]
@@ -3216,8 +3252,8 @@ with tab5:
                 else:
                     spy_opt_at_time = spy_opt.iloc[(spy_opt['time'] - best_worst_time).abs().argsort()[:1]]
                     spx_opt_at_time = spx_opt.iloc[(spx_opt['time'] - best_worst_time).abs().argsort()[:1]]
-                    spy_opt_price_scan = spy_opt_at_time['open'].iloc[0]
-                    spx_opt_price_scan = spx_opt_at_time['open'].iloc[0]
+                    spy_opt_price_scan = spy_opt_at_time[_sc_price_col].iloc[0]
+                    spx_opt_price_scan = spx_opt_at_time[_sc_price_col].iloc[0]
 
                 # Determine sell/buy setup based on spread direction and scanner_right
                 scan_direction = f'Sell {SYM2}' if max_spread_row_scan['spread'] > 0 else f'Sell {SYM1}'

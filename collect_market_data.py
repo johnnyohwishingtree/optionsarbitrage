@@ -418,6 +418,12 @@ def collect_daily_data(date_str=None, strike_range_pct=0.03, force_full=False, d
                                     'time': bar.date, 'bid': bar.low, 'ask': bar.high,
                                     'midpoint': bar.close
                                 })
+                                if generate_midpoint:
+                                    midpoint_data.append({
+                                        'symbol': sym, 'strike': strike, 'right': right,
+                                        'time': bar.date, 'open': bar.close, 'high': bar.high,
+                                        'low': bar.low, 'close': bar.close, 'volume': 0
+                                    })
                                 ba_bar_count += 1
                         time.sleep(0.5)
                     print(f'BA:{ba_bar_count}', end='')
