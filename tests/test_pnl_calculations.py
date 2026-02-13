@@ -10,7 +10,10 @@ These tests ensure that:
 
 import pytest
 import sys
-sys.path.insert(0, '/Users/johnnyhuang/personal/optionsarbitrage')
+import os
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+
+from src.pnl import calculate_settlement_value
 
 
 class MockContract:
@@ -38,14 +41,6 @@ class MockPosition:
         return self.data[key]
 
 
-def calculate_intrinsic_value(underlying_price, strike, right):
-    """Calculate intrinsic value at settlement"""
-    if right == 'C':
-        return max(0, underlying_price - strike)
-    else:  # Put
-        return max(0, strike - underlying_price)
-
-
 def calculate_position_pnl(position, underlying_price):
     """Calculate P&L for a single position"""
     contract = position['contract']
@@ -53,7 +48,7 @@ def calculate_position_pnl(position, underlying_price):
     avg_cost_per_share = position.get('avg_cost', 0) / 100
 
     # Calculate intrinsic value
-    intrinsic = calculate_intrinsic_value(
+    intrinsic = calculate_settlement_value(
         underlying_price,
         contract.strike,
         contract.right
@@ -136,32 +131,32 @@ class TestIntrinsicValueCalculations:
 
     def test_call_itm(self):
         """Test in-the-money call intrinsic value"""
-        intrinsic = calculate_intrinsic_value(700, 694, 'C')
+        intrinsic = calculate_settlement_value(700, 694, 'C')
         assert intrinsic == 6.0
 
     def test_call_atm(self):
         """Test at-the-money call intrinsic value"""
-        intrinsic = calculate_intrinsic_value(694, 694, 'C')
+        intrinsic = calculate_settlement_value(694, 694, 'C')
         assert intrinsic == 0.0
 
     def test_call_otm(self):
         """Test out-of-the-money call intrinsic value"""
-        intrinsic = calculate_intrinsic_value(690, 694, 'C')
+        intrinsic = calculate_settlement_value(690, 694, 'C')
         assert intrinsic == 0.0
 
     def test_put_itm(self):
         """Test in-the-money put intrinsic value"""
-        intrinsic = calculate_intrinsic_value(6970, 6975, 'P')
+        intrinsic = calculate_settlement_value(6970, 6975, 'P')
         assert intrinsic == 5.0
 
     def test_put_atm(self):
         """Test at-the-money put intrinsic value"""
-        intrinsic = calculate_intrinsic_value(6975, 6975, 'P')
+        intrinsic = calculate_settlement_value(6975, 6975, 'P')
         assert intrinsic == 0.0
 
     def test_put_otm(self):
         """Test out-of-the-money put intrinsic value"""
-        intrinsic = calculate_intrinsic_value(6980, 6975, 'P')
+        intrinsic = calculate_settlement_value(6980, 6975, 'P')
         assert intrinsic == 0.0
 
 

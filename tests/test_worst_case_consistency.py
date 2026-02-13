@@ -15,34 +15,14 @@ and therefore produce identical worst-case values.
 import pytest
 import sys
 import os
-import textwrap
 
 import pandas as pd
 import numpy as np
 
-sys.path.insert(0, '/Users/johnnyhuang/personal/optionsarbitrage')
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
-# Extract pure functions from strategy_calculator_simple.py without
-# executing the Streamlit UI code that runs at module level.
-_SRC_PATH = os.path.join(os.path.dirname(__file__), '..', 'strategy_calculator_simple.py')
-with open(_SRC_PATH) as _f:
-    _source = _f.read()
-
-# Everything before "# Page config" is pure function definitions
-_func_source = _source[:_source.index('# Page config')]
-
-# Remove imports that would trigger Streamlit (keep only what the functions need)
-_func_source = _func_source.replace('import streamlit as st', '')
-_func_source = _func_source.replace('import plotly.graph_objects as go', '')
-_func_source = _func_source.replace('from plotly.subplots import make_subplots', '')
-
-_ns = {'pd': pd, 'np': np, '__builtins__': __builtins__}
-exec(compile(_func_source, _SRC_PATH, 'exec'), _ns)
-
-calculate_best_worst_case_with_basis_drift = _ns['calculate_best_worst_case_with_basis_drift']
-get_option_price_from_db = _ns['get_option_price_from_db']
-get_option_price_with_liquidity = _ns['get_option_price_with_liquidity']
-_find_nearest_row = _ns['_find_nearest_row']
+from src.pnl import calculate_best_worst_case_with_basis_drift
+from src.pricing import get_option_price_from_db, get_option_price_with_liquidity, _find_nearest_row
 
 
 # ---------------------------------------------------------------------------
@@ -146,6 +126,8 @@ def _build_grid_search_params(spy_opt_price, spx_opt_price, direction='Sell SPY'
         buy_puts_qty=buy_puts_qty,
         show_calls=False,
         show_puts=True,
+        sym1='SPY',
+        sym2='SPX',
     )
 
 
@@ -432,6 +414,7 @@ class TestWorstCaseConsistency:
             sell_calls_qty=0, buy_calls_qty=0,
             sell_puts_qty=10, buy_puts_qty=1,
             show_calls=False, show_puts=True,
+            sym1='SPY', sym2='SPX',
         )
 
         _, worst_hist = calculate_best_worst_case_with_basis_drift(
@@ -521,6 +504,8 @@ class TestBasisDriftCoverage:
             buy_puts_qty=1,
             show_calls=False,
             show_puts=True,
+            sym1='SPY',
+            sym2='SPX',
         )
 
         worst_pnl = worst['net_pnl']

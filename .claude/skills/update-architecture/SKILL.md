@@ -1,3 +1,8 @@
+---
+name: update-architecture
+description: Update architecture diagrams after code changes
+---
+
 Update architecture diagrams to reflect recent code changes.
 
 Steps:

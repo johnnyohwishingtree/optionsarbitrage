@@ -10,24 +10,11 @@ This test verifies that:
 
 import pytest
 import sys
+import os
 import numpy as np
-sys.path.insert(0, '/Users/johnnyhuang/personal/optionsarbitrage')
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
-
-def calculate_settlement_value(underlying_price, strike, right):
-    """Calculate intrinsic value at settlement"""
-    if right == 'C':
-        return max(0, underlying_price - strike)
-    else:  # Put
-        return max(0, strike - underlying_price)
-
-
-def calculate_option_pnl(entry_price, exit_price, action, quantity):
-    """Calculate P&L for an option position"""
-    if action == 'BUY':
-        return (exit_price - entry_price) * quantity * 100
-    else:  # SELL
-        return (entry_price - exit_price) * quantity * 100
+from src.pnl import calculate_settlement_value, calculate_option_pnl
 
 
 def test_lockstep_worst_case_jan29():

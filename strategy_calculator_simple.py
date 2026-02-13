@@ -30,347 +30,8 @@ except RuntimeError:
 # Import IBKR client after setting up event loop
 sys.path.insert(0, '/Users/johnnyhuang/personal/optionsarbitrage')
 from src.broker.ibkr_client import IBKRClient
-
-# P&L calculation functions
-def calculate_option_pnl(entry_price, exit_price, action, quantity):
-    """Calculate P&L for an option position"""
-    if action == 'BUY':
-        return (exit_price - entry_price) * quantity * 100
-    else:  # SELL
-        return (entry_price - exit_price) * quantity * 100
-
-def calculate_settlement_value(underlying_price, strike, right):
-    """Calculate intrinsic value at settlement"""
-    if right == 'C':
-        return max(0, underlying_price - strike)
-    else:  # Put
-        return max(0, strike - underlying_price)
-
-def calculate_best_worst_case_with_basis_drift(
-    entry_spy_price, entry_spx_price,
-    spy_strike, spx_strike,
-    call_direction, put_direction,
-    sell_call_price, buy_call_price, sell_calls_qty, buy_calls_qty,
-    sell_put_price, buy_put_price, sell_puts_qty, buy_puts_qty,
-    show_calls, show_puts,
-    price_range_pct=0.05,  # ±5% price range
-    basis_drift_pct=0.001  # ±0.10% basis drift
-):
-    """
-    Calculate best/worst case P&L accounting for both price movement AND basis drift.
-
-    The SYM1/SYM2 ratio can drift slightly from entry, causing P&L to fall outside
-    the "lockstep" range. This function accounts for that basis risk.
-
-    Returns: (best_case_dict, worst_case_dict)
-    """
-    entry_ratio = entry_spx_price / entry_spy_price
-
-    best_pnl = float('-inf')
-    worst_pnl = float('inf')
-    best_scenario = {}
-    worst_scenario = {}
-
-    # Iterate through SYM1 prices (±5% range)
-    num_price_points = 50  # Reduced for performance since we add basis dimension
-    spy_min = entry_spy_price * (1 - price_range_pct)
-    spy_max = entry_spy_price * (1 + price_range_pct)
-    spy_step = (spy_max - spy_min) / (num_price_points - 1)
-
-    # Basis drift values to test
-    basis_drifts = [1 - basis_drift_pct, 1.0, 1 + basis_drift_pct]
-
-    for i in range(num_price_points):
-        spy_px = spy_min + i * spy_step
-
-        for basis_mult in basis_drifts:
-            # Apply basis drift to the ratio
-            spx_px = spy_px * entry_ratio * basis_mult
-
-            # Calculate settlement values
-            spy_call_val = calculate_settlement_value(spy_px, spy_strike, 'C')
-            spx_call_val = calculate_settlement_value(spx_px, spx_strike, 'C')
-            spy_put_val = calculate_settlement_value(spy_px, spy_strike, 'P')
-            spx_put_val = calculate_settlement_value(spx_px, spx_strike, 'P')
-
-            # Calculate P&L with per-leg breakdown
-            scenario_pnl = 0.0
-            call_credit_total = 0.0
-            call_settle_cost = 0.0
-            put_credit_total = 0.0
-            put_settle_cost = 0.0
-            sell_call_settle_val = 0.0
-            buy_call_settle_val = 0.0
-            sell_put_settle_val = 0.0
-            buy_put_settle_val = 0.0
-
-            if show_calls:
-                call_credit_total = (sell_call_price * sell_calls_qty * 100) - (buy_call_price * buy_calls_qty * 100)
-                if call_direction == f"Buy {SYM2}, Sell {SYM1}":
-                    scenario_pnl += calculate_option_pnl(sell_call_price, spy_call_val, 'SELL', sell_calls_qty)
-                    scenario_pnl += calculate_option_pnl(buy_call_price, spx_call_val, 'BUY', buy_calls_qty)
-                    sell_call_settle_val = spy_call_val
-                    buy_call_settle_val = spx_call_val
-                    call_settle_cost = (spy_call_val * sell_calls_qty * 100) - (spx_call_val * buy_calls_qty * 100)
-                else:
-                    scenario_pnl += calculate_option_pnl(sell_call_price, spx_call_val, 'SELL', sell_calls_qty)
-                    scenario_pnl += calculate_option_pnl(buy_call_price, spy_call_val, 'BUY', buy_calls_qty)
-                    sell_call_settle_val = spx_call_val
-                    buy_call_settle_val = spy_call_val
-                    call_settle_cost = (spx_call_val * sell_calls_qty * 100) - (spy_call_val * buy_calls_qty * 100)
-
-            if show_puts:
-                put_credit_total = (sell_put_price * sell_puts_qty * 100) - (buy_put_price * buy_puts_qty * 100)
-                if put_direction == f"Buy {SYM1}, Sell {SYM2}":
-                    scenario_pnl += calculate_option_pnl(sell_put_price, spx_put_val, 'SELL', sell_puts_qty)
-                    scenario_pnl += calculate_option_pnl(buy_put_price, spy_put_val, 'BUY', buy_puts_qty)
-                    sell_put_settle_val = spx_put_val
-                    buy_put_settle_val = spy_put_val
-                    put_settle_cost = (spx_put_val * sell_puts_qty * 100) - (spy_put_val * buy_puts_qty * 100)
-                else:
-                    scenario_pnl += calculate_option_pnl(sell_put_price, spy_put_val, 'SELL', sell_puts_qty)
-                    scenario_pnl += calculate_option_pnl(buy_put_price, spx_put_val, 'BUY', buy_puts_qty)
-                    sell_put_settle_val = spy_put_val
-                    buy_put_settle_val = spx_put_val
-                    put_settle_cost = (spy_put_val * sell_puts_qty * 100) - (spx_put_val * buy_puts_qty * 100)
-
-            total_credit = call_credit_total + put_credit_total
-            total_settle_cost = call_settle_cost + put_settle_cost
-
-            # Determine sell/buy symbols from direction
-            if show_calls:
-                if call_direction == f"Buy {SYM2}, Sell {SYM1}":
-                    sell_call_sym, buy_call_sym = SYM1, SYM2
-                else:
-                    sell_call_sym, buy_call_sym = SYM2, SYM1
-            else:
-                sell_call_sym, buy_call_sym = '', ''
-
-            if show_puts:
-                if put_direction == f"Buy {SYM1}, Sell {SYM2}":
-                    sell_put_sym, buy_put_sym = SYM2, SYM1
-                else:
-                    sell_put_sym, buy_put_sym = SYM1, SYM2
-            else:
-                sell_put_sym, buy_put_sym = '', ''
-
-            breakdown = {
-                'call_credit': call_credit_total,
-                'put_credit': put_credit_total,
-                'total_credit': total_credit,
-                'call_settlement_cost': call_settle_cost,
-                'put_settlement_cost': put_settle_cost,
-                'total_settlement_cost': total_settle_cost,
-                # Per-leg detail for display
-                'sell_call_symbol': sell_call_sym,
-                'buy_call_symbol': buy_call_sym,
-                'sell_put_symbol': sell_put_sym,
-                'buy_put_symbol': buy_put_sym,
-                'sell_call_settle': sell_call_settle_val,
-                'buy_call_settle': buy_call_settle_val,
-                'sell_put_settle': sell_put_settle_val,
-                'buy_put_settle': buy_put_settle_val,
-                'sell_call_price': sell_call_price,
-                'buy_call_price': buy_call_price,
-                'sell_put_price': sell_put_price,
-                'buy_put_price': buy_put_price,
-                'sell_calls_qty': sell_calls_qty,
-                'buy_calls_qty': buy_calls_qty,
-                'sell_puts_qty': sell_puts_qty,
-                'buy_puts_qty': buy_puts_qty,
-                'spy_strike': spy_strike,
-                'spx_strike': spx_strike,
-            }
-
-            if scenario_pnl > best_pnl:
-                best_pnl = scenario_pnl
-                best_scenario = {
-                    'net_pnl': scenario_pnl,
-                    'spy_price': spy_px,
-                    'spx_price': spx_px,
-                    'basis_drift': (basis_mult - 1) * 100,  # as percentage
-                    'breakdown': breakdown,
-                }
-
-            if scenario_pnl < worst_pnl:
-                worst_pnl = scenario_pnl
-                worst_scenario = {
-                    'net_pnl': scenario_pnl,
-                    'spy_price': spy_px,
-                    'spx_price': spx_px,
-                    'basis_drift': (basis_mult - 1) * 100,  # as percentage
-                    'breakdown': breakdown,
-                }
-
-    return best_scenario, worst_scenario
-
-def get_option_price_from_db(df_options, symbol, strike, right, entry_time):
-    """
-    Look up option price from database at specified time.
-    If exact time not found, returns price from nearest available time >= entry_time.
-
-    Works with both TRADES data (uses 'open' column) and BID_ASK data (uses 'midpoint' column).
-
-    Returns:
-        float: Option price at entry time or nearest after
-        None if contract not found in database
-    """
-    # Filter to contract (symbol, strike, right)
-    contract_mask = (
-        (df_options['symbol'] == symbol) &
-        (df_options['strike'] == strike) &
-        (df_options['right'] == right)
-    )
-
-    contract_data = df_options[contract_mask]
-
-    if len(contract_data) == 0:
-        return None
-
-    # Use 'midpoint' for BID_ASK data, 'open' for TRADES data
-    price_col = 'midpoint' if 'midpoint' in df_options.columns else 'open'
-
-    # Try exact time match first
-    exact_match = contract_data[contract_data['time'] == entry_time]
-    if len(exact_match) > 0:
-        return exact_match.iloc[0][price_col]
-
-    # If no exact match, find nearest timestamp >= entry_time
-    future_data = contract_data[contract_data['time'] >= entry_time]
-    if len(future_data) > 0:
-        nearest = future_data.sort_values('time').iloc[0]
-        return nearest[price_col]
-
-    # If no future data, use the last available data point
-    nearest = contract_data.sort_values('time').iloc[-1]
-    return nearest[price_col]
-
-
-def _find_nearest_row(data, entry_time, prefer_liquid=False, volume_col='volume'):
-    """Find nearest row at/after entry_time, preferring bars with volume > 0."""
-    if prefer_liquid and volume_col in data.columns:
-        liquid = data[data[volume_col] > 0]
-        if len(liquid) > 0:
-            exact = liquid[liquid['time'] == entry_time]
-            if len(exact) > 0:
-                return exact.iloc[0], True
-            future = liquid[liquid['time'] >= entry_time]
-            if len(future) > 0:
-                return future.sort_values('time').iloc[0], True
-            # All liquid bars are before entry_time — use the latest one
-            return liquid.sort_values('time').iloc[-1], True
-
-    # Fallback: any bar (including zero-volume)
-    exact = data[data['time'] == entry_time]
-    if len(exact) > 0:
-        return exact.iloc[0], False
-    future = data[data['time'] >= entry_time]
-    if len(future) > 0:
-        return future.sort_values('time').iloc[0], False
-    return data.sort_values('time').iloc[-1], False
-
-
-def get_option_price_with_liquidity(df_options, df_bidask, symbol, strike, right, entry_time):
-    """
-    Look up option price with liquidity metadata.
-
-    Prefers bars with volume > 0 to avoid stale carried-forward prices.
-    If BID_ASK data exists, uses midpoint as price (at a liquid time).
-    Otherwise falls back to TRADES open price.
-
-    Returns:
-        dict with keys: price, price_source, volume, bid, ask, spread,
-                        spread_pct, is_stale, liquidity_warning
-        None if contract not found
-    """
-    result = {
-        'price': None,
-        'price_source': 'trade',
-        'volume': 0,
-        'bid': None,
-        'ask': None,
-        'spread': None,
-        'spread_pct': None,
-        'is_stale': False,
-        'liquidity_warning': None,
-    }
-
-    # Get TRADES data — prefer bars with volume > 0
-    trade_row = None
-    found_liquid = False
-    contract_data = None
-    if df_options is not None:
-        contract_mask = (
-            (df_options['symbol'] == symbol) &
-            (df_options['strike'] == strike) &
-            (df_options['right'] == right)
-        )
-        contract_data = df_options[contract_mask]
-
-        if len(contract_data) > 0:
-            trade_row, found_liquid = _find_nearest_row(
-                contract_data, entry_time, prefer_liquid=True
-            )
-
-    if trade_row is not None:
-        result['volume'] = int(trade_row.get('volume', 0))
-
-    # Try BID_ASK data — but only at times where TRADES had volume
-    if df_bidask is not None:
-        ba_mask = (
-            (df_bidask['symbol'] == symbol) &
-            (df_bidask['strike'] == strike) &
-            (df_bidask['right'] == right)
-        )
-        ba_data = df_bidask[ba_mask]
-
-        if len(ba_data) > 0:
-            # Restrict to times with trade volume if we have that info
-            if contract_data is not None and len(contract_data) > 0:
-                liquid_times = set(contract_data[contract_data['volume'] > 0]['time'])
-                ba_liquid = ba_data[ba_data['time'].isin(liquid_times)]
-                if len(ba_liquid) > 0:
-                    ba_data = ba_liquid
-
-            ba_row, _ = _find_nearest_row(ba_data, entry_time)
-
-            bid = ba_row['bid']
-            ask = ba_row['ask']
-            midpoint = ba_row['midpoint']
-
-            result['price'] = midpoint
-            result['price_source'] = 'midpoint'
-            result['bid'] = bid
-            result['ask'] = ask
-
-            if bid > 0 and ask > 0:
-                result['spread'] = ask - bid
-                result['spread_pct'] = (ask - bid) / midpoint * 100 if midpoint > 0 else None
-
-            if result['volume'] == 0:
-                if bid > 0 and ask > 0:
-                    # Valid bid/ask quotes exist — price is usable, just no trades
-                    result['liquidity_warning'] = f"No trades (vol=0), bid/ask={bid:.2f}/{ask:.2f}"
-                else:
-                    result['is_stale'] = True
-                    result['liquidity_warning'] = f"STALE (vol=0, no valid quotes)"
-            elif result['spread_pct'] is not None and result['spread_pct'] > 20:
-                result['liquidity_warning'] = f"Wide spread: {result['spread_pct']:.1f}%"
-
-            return result
-
-    # Fallback: TRADES only
-    if trade_row is not None:
-        result['price'] = trade_row['open']
-        result['price_source'] = 'trade'
-
-        if result['volume'] == 0:
-            result['is_stale'] = True
-            result['liquidity_warning'] = "STALE (vol=0, no bid/ask data)"
-
-        return result
-
-    return None
+from src.pnl import calculate_option_pnl, calculate_settlement_value, calculate_best_worst_case_with_basis_drift
+from src.pricing import get_option_price_from_db, get_option_price_with_liquidity
 
 
 # Page config
@@ -1304,7 +965,8 @@ with tab1:
                 sell_puts_qty=sell_puts_qty,
                 buy_puts_qty=buy_puts_qty,
                 show_calls=show_calls,
-                show_puts=show_puts
+                show_puts=show_puts,
+                sym1=SYM1, sym2=SYM2,
             )
 
             # Export snapshot button
@@ -1422,7 +1084,8 @@ with tab1:
                 sell_puts_qty=0,
                 buy_puts_qty=0,
                 show_calls=True,
-                show_puts=False
+                show_puts=False,
+                sym1=SYM1, sym2=SYM2,
             )
 
             # Export snapshot button for Calls Only
@@ -1525,7 +1188,8 @@ with tab1:
                 sell_puts_qty=sell_puts_qty,
                 buy_puts_qty=buy_puts_qty,
                 show_calls=False,
-                show_puts=True
+                show_puts=True,
+                sym1=SYM1, sym2=SYM2,
             )
 
             # Export snapshot button for Puts Only
@@ -1652,7 +1316,8 @@ with tab1:
             sell_puts_qty=sell_puts_qty if show_puts else 0,
             buy_puts_qty=buy_puts_qty if show_puts else 0,
             show_calls=show_calls,
-            show_puts=show_puts
+            show_puts=show_puts,
+            sym1=SYM1, sym2=SYM2,
         )
 
         # Display results
@@ -2502,6 +2167,7 @@ with tab3:
                         buy_puts_qty=_ov_buy_puts_q,
                         show_calls=_ov_show_calls,
                         show_puts=_ov_show_puts,
+                        sym1=SYM1, sym2=SYM2,
                     )
                     accurate_worst_pnl = _ov_worst.get('net_pnl', best_worst_row['worst_case_pnl'])
                 else:
@@ -3320,6 +2986,7 @@ with tab5:
                     buy_puts_qty=scan_buy_puts_qty,
                     show_calls=scan_show_calls,
                     show_puts=scan_show_puts,
+                    sym1=SYM1, sym2=SYM2,
                 )
                 accurate_worst_pnl = accurate_worst.get('net_pnl', best_worst_row_scan['worst_case_pnl'])
 

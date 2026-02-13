@@ -1,5 +1,5 @@
 %% Flow: Data Collection Pipeline
-%% Updated: 2026-02-07
+%% Updated: 2026-02-12
 %% Entry point: python collect_market_data.py --date YYYYMMDD [--range 0.03] [--full] [--data-type both] [--symbols SPY SPX XSP]
 
 flowchart TD
@@ -9,15 +9,17 @@ flowchart TD
 
     CONNECT["CLS_IBKRClient.connect()\nIB Gateway 127.0.0.1:4002"]:::module
 
-    FETCH_REF["Fetch reference prices\nSPY/SPX/XSP current price\nfor strike range calculation"]:::function
+    FETCH_UNDERLYING["Fetch underlying bars\n1-min OHLCV for each symbol\nRTH only, filters by target date"]:::function
 
-    FETCH_UNDERLYING["Fetch underlying bars\n1-min OHLCV for each symbol\nRTH only"]:::function
+    FETCH_REF["Fetch reference prices\nparallel reqMktData for all symbols\nfallback: first underlying bar close"]:::function
 
     CALC_STRIKES["Calculate strike range\n±range_pct from reference\nSPX: $5 steps | SPY/XSP: $1 steps"]:::function
 
-    QUALIFY["Qualify contracts\nib.qualifyContracts()\nfor all strikes × C/P"]:::function
+    QUALIFY["Qualify contracts\nib.qualifyContracts()\nbatches of 50"]:::function
 
-    FETCH_OPTIONS["Concurrent option fetch\nup to 40 parallel requests\nasync batching with pacing"]:::function
+    FETCH_TRADES["TRADES pass\nbatch size 10\nasync with pacing"]:::function
+
+    FETCH_BIDASK["BID_ASK pass\nbatch size 45\nasync with pacing"]:::function
 
     SAVE_UNDERLYING["Save underlying_prices_{date}.csv"]:::data
     SAVE_TRADES["Save options_data_{date}.csv"]:::data
@@ -28,14 +30,15 @@ flowchart TD
     START --> CHECK_INCREMENTAL
     CHECK_INCREMENTAL -->|"--full or no file"| CONNECT
     CHECK_INCREMENTAL -->|"file exists"| CONNECT
-    CONNECT --> FETCH_REF
-    FETCH_REF --> FETCH_UNDERLYING
+    CONNECT --> FETCH_UNDERLYING
     FETCH_UNDERLYING ==> SAVE_UNDERLYING
-    FETCH_UNDERLYING --> CALC_STRIKES
+    FETCH_UNDERLYING --> FETCH_REF
+    FETCH_REF --> CALC_STRIKES
     CALC_STRIKES --> QUALIFY
-    QUALIFY --> FETCH_OPTIONS
-    FETCH_OPTIONS ==>|"TRADES data"| SAVE_TRADES
-    FETCH_OPTIONS ==>|"BID_ASK data"| SAVE_BIDASK
+    QUALIFY --> FETCH_TRADES
+    QUALIFY --> FETCH_BIDASK
+    FETCH_TRADES ==>|"TRADES data"| SAVE_TRADES
+    FETCH_BIDASK ==>|"BID_ASK data"| SAVE_BIDASK
     SAVE_UNDERLYING --> DONE
     SAVE_TRADES --> DONE
     SAVE_BIDASK --> DONE

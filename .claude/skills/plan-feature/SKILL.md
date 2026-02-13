@@ -1,3 +1,9 @@
+---
+name: plan-feature
+description: Plan a feature using architecture diagram vocabulary
+argument-hint: "[feature description]"
+---
+
 Plan a new feature using architecture diagram vocabulary.
 
 Feature to plan: $ARGUMENTS

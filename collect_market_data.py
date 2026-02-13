@@ -156,6 +156,10 @@ def collect_daily_data(date_str=None, strike_range_pct=0.03, force_full=False, d
             for bar in bars:
                 bar_time = pd.to_datetime(bar.date, utc=True)
 
+                # Skip bars that don't belong to the target date
+                if bar_time.strftime('%Y%m%d') != date_str:
+                    continue
+
                 # Skip if we already have this data (incremental mode)
                 if last_underlying_time and bar_time <= last_underlying_time:
                     continue
