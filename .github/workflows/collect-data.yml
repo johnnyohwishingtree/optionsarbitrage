@@ -46,7 +46,7 @@ jobs:
             -e TWS_USERID=${{ secrets.IB_USERNAME }} \
             -e TWS_PASSWORD=${{ secrets.IB_PASSWORD }} \
             -e TRADING_MODE=paper \
-            -e READ_ONLY_API=yes \
+            -e READ_ONLY_API=no \
             -e TWOFA_TIMEOUT_ACTION=restart \
             -e EXISTING_SESSION_DETECTED_ACTION=primary \
             ghcr.io/gnzsnz/ib-gateway:stable
@@ -104,7 +104,12 @@ jobs:
           DATE=${{ steps.date.outputs.date }}
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add data/*_${DATE}.csv
+          FILES=$(ls data/*_${DATE}.csv 2>/dev/null || true)
+          if [ -z "$FILES" ]; then
+            echo "No data files were created for ${DATE}"
+            exit 0
+          fi
+          git add $FILES
           if git diff --cached --quiet; then
             echo "No new data to commit"
           else
