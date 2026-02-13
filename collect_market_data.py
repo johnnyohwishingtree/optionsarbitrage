@@ -34,14 +34,20 @@ import argparse
 from datetime import datetime, timedelta
 import pandas as pd
 
-# ib_insync is unmaintained; use ib_async as drop-in replacement
-import ib_async
-sys.modules['ib_insync'] = ib_async
+# Support both ib_async (preferred) and ib_insync (legacy)
+try:
+    import ib_async
+    sys.modules['ib_insync'] = ib_async
+except ImportError:
+    import ib_insync as ib_async
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from src.broker.ibkr_client import IBKRClient
-from ib_async import Option, Stock, Index
+try:
+    from ib_async import Option, Stock, Index
+except ImportError:
+    from ib_insync import Option, Stock, Index
 
 
 def get_last_timestamp(file_path):
@@ -255,13 +261,16 @@ def collect_daily_data(date_str=None, strike_range_pct=0.03, force_full=False, d
 
         # Step 4: Fetch options historical data (concurrent batches)
         data_types_label = ' + '.join(filter(None, ['TRADES' if collect_trades else '', 'BID_ASK' if collect_bidask else '']))
-        # IB allows ~50 concurrent historical data requests
-        # When collecting both types, fire TRADES + BID_ASK together (N contracts × 2 = 2N requests)
-        if collect_trades and collect_bidask:
-            BATCH_SIZE = 22  # 22 × 2 = 44 concurrent requests (under ~50 limit)
-        else:
-            BATCH_SIZE = 45
-        print(f'\n4️⃣  Fetching {data_types_label} options data (1-minute bars, batch size {BATCH_SIZE})...')
+        # IB pacing limits differ by data type:
+        #   TRADES: max ~10 concurrent requests before IB queues/throttles
+        #   BID_ASK: handles ~45 concurrent requests fine
+        TRADES_BATCH_SIZE = 10
+        BIDASK_BATCH_SIZE = 45
+        print(f'\n4️⃣  Fetching {data_types_label} options data (1-minute bars)...')
+        if collect_trades:
+            print(f'   TRADES batch size: {TRADES_BATCH_SIZE} (IB pacing limit)')
+        if collect_bidask:
+            print(f'   BID_ASK batch size: {BIDASK_BATCH_SIZE}')
 
         options_data = []
         bidask_data = []
@@ -292,116 +301,76 @@ def collect_daily_data(date_str=None, strike_range_pct=0.03, force_full=False, d
         use_async = hasattr(client.ib, 'reqHistoricalDataAsync')
         if not use_async:
             print('   ⚠️  Async API not available, falling back to sequential mode')
-            BATCH_SIZE = 1
 
-        # Process in batches — fire ALL request types in a single gather per batch
-        total_batches = (total_contracts + BATCH_SIZE - 1) // BATCH_SIZE
         error_count = 0
-        for batch_idx in range(total_batches):
-            batch_start = batch_idx * BATCH_SIZE
-            batch_end = min(batch_start + BATCH_SIZE, total_contracts)
-            batch = qualified_contracts[batch_start:batch_end]
 
-            print(f'   Batch {batch_idx+1}/{total_batches} [{batch_start+1}-{batch_end}/{total_contracts}]', end=' ')
+        def _run_batch(batch_contracts, what_to_show, batch_size):
+            """Run a collection pass for one data type with appropriate batch size."""
+            nonlocal error_count
+            collected = []
+            is_trades = what_to_show == 'TRADES'
+            label = 'T' if is_trades else 'BA'
+            last_time = last_options_time if is_trades else last_bidask_time
 
-            if use_async:
-                # Fire TRADES and BID_ASK together in a single asyncio.gather
-                futures = []
-                request_meta = []  # Track (type, sym, strike, right) per future
-                for (sym, strike, right), contract in batch:
-                    if collect_trades:
-                        futures.append(
-                            client.ib.reqHistoricalDataAsync(
-                                contract, endDateTime='', durationStr='1 D',
-                                barSizeSetting='1 min', whatToShow='TRADES',
-                                useRTH=True, formatDate=1
-                            )
-                        )
-                        request_meta.append(('T', sym, strike, right))
-                    if collect_bidask:
-                        futures.append(
-                            client.ib.reqHistoricalDataAsync(
-                                contract, endDateTime='', durationStr='1 D',
-                                barSizeSetting='1 min', whatToShow='BID_ASK',
-                                useRTH=True, formatDate=1
-                            )
-                        )
-                        request_meta.append(('BA', sym, strike, right))
+            n = len(batch_contracts)
+            total_batches = (n + batch_size - 1) // batch_size
 
-                results = client.ib.run(asyncio.gather(*futures, return_exceptions=True))
+            for batch_idx in range(total_batches):
+                start = batch_idx * batch_size
+                end = min(start + batch_size, n)
+                batch = batch_contracts[start:end]
 
-                trade_bar_count = 0
-                ba_bar_count = 0
-                for meta, bars in zip(request_meta, results):
-                    req_type, sym, strike, right = meta
-                    if isinstance(bars, Exception):
-                        error_count += 1
-                        continue
-                    if not bars:
-                        continue
-                    if req_type == 'T':
-                        for bar in bars:
-                            bar_time = pd.to_datetime(bar.date, utc=True)
-                            if last_options_time and bar_time <= last_options_time:
-                                continue
-                            options_data.append({
-                                'symbol': sym, 'strike': strike, 'right': right,
-                                'time': bar.date, 'open': bar.open, 'high': bar.high,
-                                'low': bar.low, 'close': bar.close, 'volume': bar.volume
-                            })
-                            trade_bar_count += 1
-                    else:  # BA
-                        for bar in bars:
-                            bar_time = pd.to_datetime(bar.date, utc=True)
-                            if last_bidask_time and bar_time <= last_bidask_time:
-                                continue
-                            bidask_data.append({
-                                'symbol': sym, 'strike': strike, 'right': right,
-                                'time': bar.date, 'bid': bar.low, 'ask': bar.high,
-                                'midpoint': bar.close
-                            })
-                            ba_bar_count += 1
+                print(f'   Batch {batch_idx+1}/{total_batches} [{start+1}-{end}/{n}]', end=' ')
 
-                if collect_trades:
-                    print(f'T:{trade_bar_count}', end=' ')
-                if collect_bidask:
-                    print(f'BA:{ba_bar_count}', end='')
-            else:
-                # Sequential fallback
-                if collect_trades:
-                    trade_bar_count = 0
+                if use_async:
+                    futures = []
+                    meta = []
                     for (sym, strike, right), contract in batch:
-                        try:
-                            bars = client.ib.reqHistoricalData(
+                        futures.append(
+                            client.ib.reqHistoricalDataAsync(
                                 contract, endDateTime='', durationStr='1 D',
-                                barSizeSetting='1 min', whatToShow='TRADES',
+                                barSizeSetting='1 min', whatToShow=what_to_show,
                                 useRTH=True, formatDate=1
                             )
-                        except Exception as e:
-                            bars = e
+                        )
+                        meta.append((sym, strike, right))
+
+                    results = client.ib.run(asyncio.gather(*futures, return_exceptions=True))
+
+                    bar_count = 0
+                    for (sym, strike, right), bars in zip(meta, results):
                         if isinstance(bars, Exception):
                             error_count += 1
-                        elif bars:
-                            for bar in bars:
-                                bar_time = pd.to_datetime(bar.date, utc=True)
-                                if last_options_time and bar_time <= last_options_time:
-                                    continue
-                                options_data.append({
+                            continue
+                        if not bars:
+                            continue
+                        for bar in bars:
+                            bar_time = pd.to_datetime(bar.date, utc=True)
+                            if last_time and bar_time <= last_time:
+                                continue
+                            if is_trades:
+                                collected.append({
                                     'symbol': sym, 'strike': strike, 'right': right,
                                     'time': bar.date, 'open': bar.open, 'high': bar.high,
                                     'low': bar.low, 'close': bar.close, 'volume': bar.volume
                                 })
-                                trade_bar_count += 1
-                        time.sleep(0.5)
-                    print(f'T:{trade_bar_count}', end=' ')
+                            else:
+                                collected.append({
+                                    'symbol': sym, 'strike': strike, 'right': right,
+                                    'time': bar.date, 'bid': bar.low, 'ask': bar.high,
+                                    'midpoint': bar.close
+                                })
+                            bar_count += 1
 
-                if collect_bidask:
-                    ba_bar_count = 0
+                    print(f'{label}:{bar_count}')
+                else:
+                    # Sequential fallback
+                    bar_count = 0
                     for (sym, strike, right), contract in batch:
                         try:
                             bars = client.ib.reqHistoricalData(
                                 contract, endDateTime='', durationStr='1 D',
-                                barSizeSetting='1 min', whatToShow='BID_ASK',
+                                barSizeSetting='1 min', whatToShow=what_to_show,
                                 useRTH=True, formatDate=1
                             )
                         except Exception as e:
@@ -411,28 +380,38 @@ def collect_daily_data(date_str=None, strike_range_pct=0.03, force_full=False, d
                         elif bars:
                             for bar in bars:
                                 bar_time = pd.to_datetime(bar.date, utc=True)
-                                if last_bidask_time and bar_time <= last_bidask_time:
+                                if last_time and bar_time <= last_time:
                                     continue
-                                bidask_data.append({
-                                    'symbol': sym, 'strike': strike, 'right': right,
-                                    'time': bar.date, 'bid': bar.low, 'ask': bar.high,
-                                    'midpoint': bar.close
-                                })
-                                if generate_midpoint:
-                                    midpoint_data.append({
+                                if is_trades:
+                                    collected.append({
                                         'symbol': sym, 'strike': strike, 'right': right,
-                                        'time': bar.date, 'open': bar.close, 'high': bar.high,
-                                        'low': bar.low, 'close': bar.close, 'volume': 0
+                                        'time': bar.date, 'open': bar.open, 'high': bar.high,
+                                        'low': bar.low, 'close': bar.close, 'volume': bar.volume
                                     })
-                                ba_bar_count += 1
+                                else:
+                                    collected.append({
+                                        'symbol': sym, 'strike': strike, 'right': right,
+                                        'time': bar.date, 'bid': bar.low, 'ask': bar.high,
+                                        'midpoint': bar.close
+                                    })
+                                bar_count += 1
                         time.sleep(0.5)
-                    print(f'BA:{ba_bar_count}', end='')
+                    print(f'{label}:{bar_count}')
 
-            print()
+                # Brief pause between batches to avoid pacing violations
+                if batch_idx < total_batches - 1:
+                    time.sleep(1)
 
-            # Brief pause between batches to avoid pacing violations
-            if batch_idx < total_batches - 1:
-                time.sleep(1)
+            return collected
+
+        # Run TRADES and BID_ASK as separate passes with their own batch sizes
+        if collect_trades:
+            print(f'\n   --- TRADES pass (batch size {TRADES_BATCH_SIZE}) ---')
+            options_data = _run_batch(qualified_contracts, 'TRADES', TRADES_BATCH_SIZE)
+
+        if collect_bidask:
+            print(f'\n   --- BID_ASK pass (batch size {BIDASK_BATCH_SIZE}) ---')
+            bidask_data = _run_batch(qualified_contracts, 'BID_ASK', BIDASK_BATCH_SIZE)
 
         # Restore original error handler
         client.ib.errorEvent.clear()

@@ -75,7 +75,7 @@ jobs:
           python collect_market_data.py \
             --date ${{ steps.date.outputs.date }} \
             --symbols SPY,SPX,XSP \
-            --data-type bidask \
+            --data-type both \
             --range 0.03
         timeout-minutes: 10
 
