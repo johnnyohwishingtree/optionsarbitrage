@@ -19,7 +19,8 @@ ARCH_DIR = ROOT / "docs" / "architecture"
 
 MODULE_NODES = {
     "MOD_collect": "collect_market_data.py",
-    "MOD_strategy": "strategy_calculator_simple.py",
+    "MOD_strategy": "strategy_calculator_simple.py.bak",
+    "MOD_app": "app.py",
     "MOD_ibkrClient": "src/broker/ibkr_client.py",
     "MOD_pnl": "src/pnl.py",
     "MOD_pricing": "src/pricing.py",
@@ -31,6 +32,12 @@ MODULE_NODES = {
     "MOD_position": "src/position.py",
     "MOD_scanner_engine": "src/scanner_engine.py",
     "MOD_normalization": "src/normalization.py",
+    "MOD_sidebar": "src/pages/sidebar.py",
+    "MOD_historical": "src/pages/historical.py",
+    "MOD_live_trading": "src/pages/live_trading.py",
+    "MOD_price_overlay": "src/pages/price_overlay.py",
+    "MOD_divergence": "src/pages/divergence.py",
+    "MOD_scanner": "src/pages/scanner.py",
 }
 
 CLASS_NODES = {
@@ -83,22 +90,11 @@ def _extract_node_ids_from_mmd(filepath: Path) -> set[str]:
 
 
 def _get_tab_names_from_code() -> list[str]:
-    """Extract the main st.tabs() call labels from strategy_calculator_simple.py."""
-    source = (ROOT / "strategy_calculator_simple.py").read_text(encoding="utf-8")
-    # Find the main tabs line: st.tabs(["...", "...", ...])
-    match = re.search(r'st\.tabs\(\[([^\]]+)\]', source)
-    if not match:
-        return []
-    raw = match.group(1)
-    # Extract quoted strings, strip emoji prefixes
-    labels = re.findall(r'"([^"]+)"', raw)
-    # Remove leading emoji + space (e.g., "📊 Historical Analysis" -> "Historical Analysis")
-    cleaned = []
-    for label in labels:
-        # Strip any non-ASCII prefix characters and whitespace
-        text = re.sub(r'^[^\w]+', '', label).strip()
-        cleaned.append(text)
-    return cleaned
+    """Extract the main dcc.Tab labels from app.py."""
+    source = (ROOT / "app.py").read_text(encoding="utf-8")
+    # Find all dcc.Tab(label='...', ...) entries
+    labels = re.findall(r"dcc\.Tab\(label=['\"]([^'\"]+)['\"]", source)
+    return labels
 
 
 # ── Tests ─────────────────────────────────────────────────────────────
@@ -150,17 +146,17 @@ class TestFunctionsExist:
 
 
 class TestTabsExist:
-    """Verify every TAB_ node references a Streamlit tab that exists in the code."""
+    """Verify every TAB_ node references a Dash tab that exists in app.py."""
 
     def test_tab_names_match(self):
         code_tabs = _get_tab_names_from_code()
-        assert len(code_tabs) > 0, "Could not find st.tabs() call in strategy_calculator_simple.py"
+        assert len(code_tabs) > 0, "Could not find dcc.Tab() entries in app.py"
 
         for node_id, expected_label in TAB_NODES.items():
             found = any(expected_label in tab for tab in code_tabs)
             assert found, (
                 f"Diagram node {node_id} references tab '{expected_label}', "
-                f"but it was not found in st.tabs(). Current tabs: {code_tabs}"
+                f"but it was not found in app.py tabs. Current tabs: {code_tabs}"
             )
 
     def test_no_undocumented_tabs(self):
@@ -256,31 +252,30 @@ class TestBusinessConstants:
     """
 
     def test_qty_ratio_spx(self):
-        """QTY_RATIO = 10 when SYM2 == SPX."""
-        source = _read_source("strategy_calculator_simple.py")
-        match = re.search(r'QTY_RATIO\s*=\s*10\s+if\s+SYM2\s*==\s*[\'"]SPX[\'"]', source)
+        """QTY_RATIO_SPX = 10."""
+        source = _read_source("src/config.py")
+        match = re.search(r'QTY_RATIO_SPX\s*=\s*10', source)
         assert match, (
-            "Expected QTY_RATIO = 10 for SPX in strategy_calculator_simple.py. "
+            "Expected QTY_RATIO_SPX = 10 in src/config.py. "
             "If this changed, update strategy-overview.mmd, flow-position-construction.mmd, "
             "and CLAUDE.md Business Constants table."
         )
 
     def test_qty_ratio_non_spx(self):
-        """QTY_RATIO = 1 for non-SPX pairs (else branch)."""
-        source = _read_source("strategy_calculator_simple.py")
-        # The pattern: QTY_RATIO = 10 if SYM2 == 'SPX' else 1
-        match = re.search(r'QTY_RATIO\s*=\s*10\s+if\s+.*else\s+1', source)
+        """QTY_RATIO_DEFAULT = 1 for non-SPX pairs."""
+        source = _read_source("src/config.py")
+        match = re.search(r'QTY_RATIO_DEFAULT\s*=\s*1', source)
         assert match, (
-            "Expected QTY_RATIO else 1 for non-SPX in strategy_calculator_simple.py. "
+            "Expected QTY_RATIO_DEFAULT = 1 in src/config.py. "
             "If this changed, update strategy-overview.mmd and CLAUDE.md."
         )
 
     def test_strike_step_spx(self):
         """SPX uses $5 strike steps."""
-        source = _read_source("strategy_calculator_simple.py")
-        match = re.search(r'SYM2_STRIKE_STEP\s*=\s*5\s+if\s+SYM2\s*==\s*[\'"]SPX[\'"]', source)
+        source = _read_source("src/config.py")
+        match = re.search(r'STRIKE_STEP_SPX\s*=\s*5', source)
         assert match, (
-            "Expected SYM2_STRIKE_STEP = 5 for SPX. "
+            "Expected STRIKE_STEP_SPX = 5 in src/config.py. "
             "If this changed, update flow-position-construction.mmd and CLAUDE.md."
         )
 
@@ -333,29 +328,29 @@ class TestBusinessConstants:
 
     def test_moneyness_warning_threshold(self):
         """Moneyness mismatch warns at >0.05%."""
-        source = _read_source("strategy_calculator_simple.py")
-        match = re.search(r'moneyness_diff\s*>\s*0\.05', source)
+        source = _read_source("src/config.py")
+        match = re.search(r'MONEYNESS_WARN_THRESHOLD\s*=\s*0\.05', source)
         assert match, (
-            "Expected moneyness warning threshold of 0.05% in strategy_calculator_simple.py. "
+            "Expected MONEYNESS_WARN_THRESHOLD = 0.05 in src/config.py. "
             "If this changed, update strategy-overview.mmd and CLAUDE.md."
         )
 
     def test_scanner_pair_tolerance(self):
         """Scanner matches strike pairs within 0.5% tolerance."""
-        source = _read_source("strategy_calculator_simple.py")
-        match = re.search(r'<\s*0\.005', source)
+        source = _read_source("src/config.py")
+        match = re.search(r'SCANNER_PAIR_TOLERANCE\s*=\s*0\.005', source)
         assert match, (
-            "Expected scanner pair tolerance of 0.005 (0.5%) in strategy_calculator_simple.py. "
+            "Expected SCANNER_PAIR_TOLERANCE = 0.005 (0.5%) in src/config.py. "
             "If this changed, update flow-strike-scanner.mmd, strategy-overview.mmd, "
             "and CLAUDE.md."
         )
 
     def test_margin_rate(self):
         """Margin estimate uses 20% of short notional."""
-        source = _read_source("strategy_calculator_simple.py")
-        match = re.search(r'\*\s*0\.20', source)
+        source = _read_source("src/config.py")
+        match = re.search(r'MARGIN_RATE\s*=\s*0\.20', source)
         assert match, (
-            "Expected 0.20 (20%) margin rate in strategy_calculator_simple.py. "
+            "Expected MARGIN_RATE = 0.20 (20%) in src/config.py. "
             "If this changed, update flow-position-construction.mmd and CLAUDE.md."
         )
 

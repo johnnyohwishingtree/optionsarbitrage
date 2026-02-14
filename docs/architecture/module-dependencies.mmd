@@ -8,12 +8,12 @@ graph LR
     MOD_ibkrClient["src/broker/ibkr_client.py"]:::module
     MOD_pnl["src/pnl.py"]:::module
     MOD_pricing["src/pricing.py"]:::module
-    MOD_strategy["strategy_calculator_simple.py"]:::module
     TEST_consistency["tests/test_worst_case_consistency.py"]:::function
     TEST_lockstep["tests/test_worst_case_lockstep.py"]:::function
     TEST_pnl["tests/test_pnl_calculations.py"]:::function
 
     %% Discovered modules (not in standard map)
+    MOD_app["app.py"]:::module
     MOD_config["src/config.py"]:::module
     MOD_models["src/models.py"]:::module
     MOD_data_loader["src/data_loader.py"]:::module
@@ -22,20 +22,21 @@ graph LR
     MOD_normalization["src/normalization.py"]:::module
     MOD_protocol["src/broker/protocol.py"]:::module
     MOD_mock_broker["src/broker/mock_broker.py"]:::module
+    MOD_sidebar["src/pages/sidebar.py"]:::module
+    MOD_scanner["src/pages/scanner.py"]:::module
+    MOD_live_trading["src/pages/live_trading.py"]:::module
+    MOD_price_overlay["src/pages/price_overlay.py"]:::module
+    MOD_historical["src/pages/historical.py"]:::module
+    MOD_divergence["src/pages/divergence.py"]:::module
 
     %% External libraries
     LIB_asyncio["asyncio"]:::external
     LIB_ibAsync["ib_async / ib_insync"]:::external
     LIB_numpy["numpy"]:::external
     LIB_pandas["pandas"]:::external
-    LIB_plotly["plotly"]:::external
-    LIB_streamlit["streamlit"]:::external
 
     %% Module → Module imports
     MOD_collect -->|"imports"| MOD_ibkrClient
-    MOD_strategy -->|"imports"| MOD_ibkrClient
-    MOD_strategy -->|"imports"| MOD_pnl
-    MOD_strategy -->|"imports"| MOD_pricing
 
     %% Module → Library imports
     MOD_collect --> LIB_asyncio
@@ -43,12 +44,6 @@ graph LR
     MOD_collect --> LIB_pandas
     MOD_ibkrClient --> LIB_asyncio
     MOD_ibkrClient --> LIB_ibAsync
-    MOD_strategy --> LIB_asyncio
-    MOD_strategy --> LIB_ibAsync
-    MOD_strategy --> LIB_numpy
-    MOD_strategy --> LIB_pandas
-    MOD_strategy --> LIB_plotly
-    MOD_strategy --> LIB_streamlit
 
     %% Test → Module dependencies (dashed)
     TEST_consistency -.->|"imports"| LIB_numpy
