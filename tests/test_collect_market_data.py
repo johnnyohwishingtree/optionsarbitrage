@@ -4,15 +4,25 @@ Tests for data collection logic in collect_market_data.py.
 Covers:
 - Contract qualification filtering (conId check)
 - Per-symbol stats tracking
+
+Note: collect_market_data.py imports ib_async/ib_insync at module level.
+These tests are skipped on CI where IB libraries aren't installed.
 """
 
 import sys
 import os
 from types import SimpleNamespace
 
+import pytest
+
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
-from collect_market_data import filter_qualified_contracts
+# collect_market_data.py does `import ib_async` at module level.
+# Skip the entire module if the IB library is not installed.
+try:
+    from collect_market_data import filter_qualified_contracts
+except (ImportError, ModuleNotFoundError):
+    pytest.skip("ib_async/ib_insync not installed", allow_module_level=True)
 
 
 def _make_contract(con_id):

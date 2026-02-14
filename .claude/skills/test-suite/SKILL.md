@@ -7,26 +7,47 @@ Audit the test suite for gaps, write missing tests, and fix any bugs the tests r
 
 Target area (optional): $ARGUMENTS
 
-## Current Test Inventory
+## Test Structure Convention
+
+Tests mirror the source structure. See `/organize` for the full mapping.
 
 ```
 tests/
-  test_architecture_sync.py         # Diagram ↔ code sync, business constants
-  test_pnl_calculations.py          # P&L math: settlement, intrinsic, option P&L
-  test_worst_case_consistency.py    # Consistency across Historical, Scanner, Overlay views
-  test_worst_case_lockstep.py       # Lockstep scenario tests with real data
-  test_data_collection.py           # collect_market_data.py: filter_qualified_contracts
-  test_data_loader.py               # CSV loading, date listing, symbol resolution
-  test_position.py                  # Position construction, credit, margin
-  test_scanner_engine.py            # Pair matching, liquidity filter, ranking
+  # ── Unit tests (1:1 with src/) ──
+  test_config.py                    # ← src/config.py
+  test_models.py                    # ← src/models.py
+  test_pnl.py                      # ← src/pnl.py
+  test_pricing.py                   # ← src/pricing.py
+  test_data_loader.py               # ← src/data_loader.py
+  test_position.py                  # ← src/position.py
+  test_scanner_engine.py            # ← src/scanner_engine.py
+  test_normalization.py             # ← src/normalization.py
+  broker/
+    test_ibkr_client.py             # ← src/broker/ibkr_client.py
+    test_mock_broker.py             # ← src/broker/mock_broker.py
+  pages/
+    test_sidebar.py                 # ← src/pages/sidebar.py
+    test_historical.py              # ← src/pages/historical.py
+    test_live_trading.py            # ← src/pages/live_trading.py
+    test_price_overlay.py           # ← src/pages/price_overlay.py
+    test_divergence.py              # ← src/pages/divergence.py
+    test_scanner.py                 # ← src/pages/scanner.py
+    test_components.py              # ← src/pages/components.py
+  # ── Cross-cutting ──
+  test_collect_market_data.py       # ← collect_market_data.py
+  test_app.py                       # ← app.py
+  test_architecture_sync.py         # meta: diagram ↔ code sync
+  test_worst_case_consistency.py    # cross-cutting: price consistency
+  test_worst_case_lockstep.py       # cross-cutting: lockstep scenarios
 ```
 
+**Rule:** Every `src/foo.py` gets a `tests/test_foo.py`. Every `src/bar/baz.py` gets a `tests/bar/test_baz.py`. If a test file doesn't exist, create a stub so the gap is visible.
+
 **What's missing:**
-- Dash callback wiring tests (do all callback IDs exist in the layout?)
-- Dash callback logic tests (do callbacks return correct output shapes?)
-- Layout validation (no duplicate IDs, no orphaned components)
-- Integration tests (does `app.py` import without errors? do pages render?)
-- Edge cases in business logic (zero prices, empty DataFrames, missing data)
+- `tests/broker/` directory and broker tests
+- `tests/pages/` directory and per-page callback tests
+- `test_config.py`, `test_models.py` for foundation modules
+- Several existing tests have mismatched names (e.g., `test_pnl_calculations.py` should be `test_pnl.py`)
 
 ## Layer 1: Dash UI Tests (`tests/test_dash_callbacks.py`)
 

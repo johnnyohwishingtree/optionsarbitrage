@@ -22,15 +22,16 @@ graph LR
     MOD_scanner["src/pages/scanner.py"]:::module
     MOD_scanner_engine["src/scanner_engine.py"]:::module
     MOD_sidebar["src/pages/sidebar.py"]:::module
+    TEST_app["tests/test_app.py"]:::function
     TEST_arch_sync["tests/test_architecture_sync.py"]:::function
+    TEST_collect_market_data["tests/test_collect_market_data.py"]:::function
+    TEST_config["tests/test_config.py"]:::function
     TEST_consistency["tests/test_worst_case_consistency.py"]:::function
-    TEST_dash_callbacks["tests/test_dash_callbacks.py"]:::function
-    TEST_data_collection["tests/test_data_collection.py"]:::function
     TEST_data_loader["tests/test_data_loader.py"]:::function
-    TEST_integration["tests/test_integration.py"]:::function
     TEST_lockstep["tests/test_worst_case_lockstep.py"]:::function
+    TEST_models["tests/test_models.py"]:::function
     TEST_normalization["tests/test_normalization.py"]:::function
-    TEST_pnl["tests/test_pnl_calculations.py"]:::function
+    TEST_pnl["tests/test_pnl.py"]:::function
     TEST_position["tests/test_position.py"]:::function
     TEST_pricing["tests/test_pricing.py"]:::function
     TEST_scanner_engine["tests/test_scanner_engine.py"]:::function
@@ -102,30 +103,25 @@ graph LR
     MOD_sidebar --> LIB_dash
 
     %% Test → Module dependencies (dashed)
+    TEST_app -.->|"imports"| LIB_dash
+    TEST_app -.->|"imports"| MOD_components
+    TEST_app -.->|"imports"| MOD_config
+    TEST_app -.->|"imports"| MOD_data_loader
+    TEST_app -.->|"imports"| MOD_models
+    TEST_app -.->|"imports"| MOD_pnl
+    TEST_app -.->|"imports"| MOD_position
+    TEST_app -.->|"imports"| MOD_pricing
+    TEST_app -.->|"imports"| MOD_scanner
+    TEST_config -.->|"imports"| MOD_config
     TEST_consistency -.->|"imports"| LIB_numpy
     TEST_consistency -.->|"imports"| LIB_pandas
     TEST_consistency -.->|"imports"| MOD_pnl
     TEST_consistency -.->|"imports"| MOD_pricing
-    TEST_dash_callbacks -.->|"imports"| LIB_dash
-    TEST_dash_callbacks -.->|"imports"| MOD_components
-    TEST_dash_callbacks -.->|"imports"| MOD_config
-    TEST_dash_callbacks -.->|"imports"| MOD_divergence
-    TEST_dash_callbacks -.->|"imports"| MOD_historical
-    TEST_dash_callbacks -.->|"imports"| MOD_live_trading
-    TEST_dash_callbacks -.->|"imports"| MOD_price_overlay
-    TEST_dash_callbacks -.->|"imports"| MOD_scanner
-    TEST_dash_callbacks -.->|"imports"| MOD_sidebar
     TEST_data_loader -.->|"imports"| LIB_pandas
     TEST_data_loader -.->|"imports"| MOD_data_loader
-    TEST_integration -.->|"imports"| LIB_dash
-    TEST_integration -.->|"imports"| MOD_config
-    TEST_integration -.->|"imports"| MOD_data_loader
-    TEST_integration -.->|"imports"| MOD_models
-    TEST_integration -.->|"imports"| MOD_pnl
-    TEST_integration -.->|"imports"| MOD_position
-    TEST_integration -.->|"imports"| MOD_pricing
     TEST_lockstep -.->|"imports"| LIB_numpy
     TEST_lockstep -.->|"imports"| MOD_pnl
+    TEST_models -.->|"imports"| MOD_models
     TEST_normalization -.->|"imports"| LIB_pandas
     TEST_normalization -.->|"imports"| MOD_config
     TEST_normalization -.->|"imports"| MOD_normalization

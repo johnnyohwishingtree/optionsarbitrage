@@ -37,18 +37,20 @@ MODULE_MAP = {
 
 # Test files
 TEST_MAP = {
-    "tests/test_pnl_calculations.py": "TEST_pnl",
+    "tests/test_pnl.py": "TEST_pnl",
     "tests/test_worst_case_consistency.py": "TEST_consistency",
     "tests/test_worst_case_lockstep.py": "TEST_lockstep",
     "tests/test_architecture_sync.py": "TEST_arch_sync",
-    "tests/test_dash_callbacks.py": "TEST_dash_callbacks",
-    "tests/test_data_collection.py": "TEST_data_collection",
+    "tests/test_dash_callbacks.py": "TEST_dash_callbacks",  # TODO: remove after migration complete
+    "tests/test_collect_market_data.py": "TEST_collect_market_data",
     "tests/test_data_loader.py": "TEST_data_loader",
-    "tests/test_integration.py": "TEST_integration",
+    "tests/test_app.py": "TEST_app",
     "tests/test_normalization.py": "TEST_normalization",
     "tests/test_position.py": "TEST_position",
     "tests/test_pricing.py": "TEST_pricing",
     "tests/test_scanner_engine.py": "TEST_scanner_engine",
+    "tests/test_config.py": "TEST_config",
+    "tests/test_models.py": "TEST_models",
 }
 
 # External libraries we care about (skip stdlib)

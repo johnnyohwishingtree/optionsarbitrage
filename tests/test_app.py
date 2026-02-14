@@ -1,11 +1,68 @@
-"""Integration tests — app boot, tab routing, and end-to-end data flow.
+"""Tests for app.py — app boot, layout validation, tab routing, and end-to-end data flow.
 
 These verify that the full pipeline works: import → load data → build position
 → calculate P&L. Tests that require market data skip gracefully if no CSVs exist.
+Also validates callback wiring and layout IDs.
 """
 
+import importlib
 import pytest
 from dash import html
+
+from app import app
+from dash._callback import GLOBAL_CALLBACK_MAP
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+def _get_all_static_ids():
+    """Recursively extract all component IDs from the static layout."""
+    ids = set()
+    def walk(component):
+        if hasattr(component, 'id') and component.id:
+            ids.add(component.id)
+        if hasattr(component, 'children'):
+            children = component.children
+            if isinstance(children, list):
+                for child in children:
+                    walk(child)
+            elif children is not None:
+                walk(children)
+    walk(app.layout)
+    return ids
+
+
+def _get_all_callback_ids():
+    """Extract all IDs referenced by callbacks (Inputs, Outputs, States)."""
+    ids = set()
+    for key, val in GLOBAL_CALLBACK_MAP.items():
+        for dep in val.get('inputs', []):
+            ids.add(dep['id'])
+        for dep in val.get('state', []):
+            ids.add(dep['id'])
+        outputs = val.get('output', [])
+        if not isinstance(outputs, list):
+            outputs = [outputs]
+        for out in outputs:
+            if hasattr(out, 'component_id'):
+                ids.add(out.component_id)
+    return ids
+
+
+# IDs created dynamically by tab-switching (render_tab callback).
+DYNAMIC_TAB_IDS = {
+    'strategy-select', 'historical-analysis-output',
+    'live-refresh-btn', 'live-last-updated', 'live-auto-refresh-toggle',
+    'live-refresh-interval', 'live-trading-content',
+    'overlay-right', 'overlay-content',
+    'divergence-content',
+    'scanner-right-select', 'scanner-min-volume', 'scanner-hide-illiquid',
+    'scan-button', 'scanner-status', 'scanner-loading',
+    'scanner-results-store', 'scanner-results-section', 'scanner-rank-tabs',
+    'scanner-table-safety', 'scanner-table-profit', 'scanner-table-risk_reward',
+}
 
 
 # ---------------------------------------------------------------------------
@@ -51,6 +108,141 @@ class TestAppBoot:
         """Required for dynamic tab content pattern."""
         import app
         assert app.app.config.suppress_callback_exceptions is True
+
+    def test_render_tab_returns_div(self):
+        """render_tab returns Dash components for all valid tab values."""
+        from app import render_tab
+        for tab in ['historical', 'live_trading', 'price_overlay', 'divergence', 'scanner']:
+            result = render_tab(tab)
+            assert result is not None, f"render_tab('{tab}') returned None"
+            assert isinstance(result, html.Div), f"render_tab('{tab}') didn't return Div"
+
+    def test_render_tab_unknown(self):
+        from app import render_tab
+        result = render_tab('nonexistent')
+        assert isinstance(result, html.Div)
+
+    def test_show_apply_banner_none(self):
+        from app import show_apply_banner
+        assert show_apply_banner(None) is None
+        assert show_apply_banner({}) is None
+
+    def test_show_apply_banner_with_data(self):
+        from app import show_apply_banner
+        result = show_apply_banner({
+            'sym1': 'SPY', 'sym2': 'SPX',
+            'sym1_strike': 600, 'sym2_strike': 6000,
+            'direction': 'Sell SPX', 'entry_time': '10:00',
+        })
+        assert isinstance(result, html.Div)
+
+
+# ---------------------------------------------------------------------------
+# Layout ID Validation
+# ---------------------------------------------------------------------------
+
+class TestLayoutIds:
+    """Verify all callback-referenced IDs exist in layout or are known-dynamic."""
+
+    def test_no_orphaned_callback_ids(self):
+        static_ids = _get_all_static_ids()
+        all_known = static_ids | DYNAMIC_TAB_IDS
+        callback_ids = _get_all_callback_ids()
+        missing = callback_ids - all_known
+        assert missing == set(), f"Callback references IDs not in layout or known-dynamic: {missing}"
+
+    def test_static_layout_has_core_ids(self):
+        static_ids = _get_all_static_ids()
+        required_core = {
+            'config-store', 'selected-scan-result', 'apply-banner',
+            'main-tabs', 'tab-content', 'date-selector', 'pair-selector',
+            'entry-time-slider', 'sym1-strike-input', 'sym2-strike-input',
+            'call-direction-select', 'put-direction-select',
+        }
+        missing = required_core - static_ids
+        assert missing == set(), f"Core IDs missing from static layout: {missing}"
+
+    def test_no_duplicate_static_ids(self):
+        seen = []
+        duplicates = []
+        def walk(component):
+            if hasattr(component, 'id') and component.id:
+                if component.id in seen:
+                    duplicates.append(component.id)
+                seen.append(component.id)
+            if hasattr(component, 'children'):
+                children = component.children
+                if isinstance(children, list):
+                    for child in children:
+                        walk(child)
+                elif children is not None:
+                    walk(children)
+        walk(app.layout)
+        assert duplicates == [], f"Duplicate IDs in static layout: {duplicates}"
+
+
+# ---------------------------------------------------------------------------
+# Scanner Table Wiring
+# ---------------------------------------------------------------------------
+
+class TestScannerTableWiring:
+    def test_scanner_tables_referenced_in_callback(self):
+        cb = GLOBAL_CALLBACK_MAP.get('selected-scan-result.data')
+        assert cb is not None, "apply_scan_result callback not found"
+        input_ids = {dep['id'] for dep in cb['inputs']}
+        expected = {'scanner-table-safety', 'scanner-table-profit', 'scanner-table-risk_reward'}
+        assert expected.issubset(input_ids)
+
+    def test_scanner_tables_exist_in_scanner_layout(self):
+        from src.pages.scanner import layout as scanner_layout
+        scanner_ids = set()
+        def walk(component):
+            if hasattr(component, 'id') and component.id:
+                scanner_ids.add(component.id)
+            if hasattr(component, 'children'):
+                children = component.children
+                if isinstance(children, list):
+                    for child in children:
+                        walk(child)
+                elif children is not None:
+                    walk(children)
+        walk(scanner_layout())
+        required = {'scanner-table-safety', 'scanner-table-profit', 'scanner-table-risk_reward'}
+        missing = required - scanner_ids
+        assert missing == set(), f"Scanner tables missing from scanner layout: {missing}"
+
+
+# ---------------------------------------------------------------------------
+# Page Import Tests
+# ---------------------------------------------------------------------------
+
+class TestPageImports:
+    @pytest.mark.parametrize("module_name", [
+        'src.pages.sidebar',
+        'src.pages.historical',
+        'src.pages.live_trading',
+        'src.pages.price_overlay',
+        'src.pages.divergence',
+        'src.pages.scanner',
+        'src.pages.components',
+    ])
+    def test_page_has_layout_or_is_utility(self, module_name):
+        mod = importlib.import_module(module_name)
+        if module_name != 'src.pages.components':
+            assert hasattr(mod, 'layout'), f"{module_name} missing layout()"
+            assert callable(mod.layout)
+
+    def test_components_module_exports(self):
+        from src.pages.components import (
+            SECTION_STYLE, TABLE_STYLE, TH_STYLE, TD_STYLE, TD_RIGHT,
+            POSITIVE_STYLE, NEGATIVE_STYLE, NEUTRAL_STYLE, WARNING_STYLE,
+            COLOR_POSITIVE, COLOR_NEGATIVE, COLOR_NEUTRAL,
+            pnl_span, metric_card, section,
+        )
+        assert callable(pnl_span)
+        assert callable(metric_card)
+        assert callable(section)
+        assert isinstance(SECTION_STYLE, dict)
 
 
 # ---------------------------------------------------------------------------
