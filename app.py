@@ -30,20 +30,21 @@ app.layout = html.Div([
         html.Div(
             sidebar.layout(),
             style={
-                'width': '320px',
-                'minWidth': '320px',
-                'padding': '20px',
+                'width': '300px',
+                'minWidth': '300px',
+                'padding': '16px',
                 'backgroundColor': '#f8f9fa',
                 'borderRight': '1px solid #dee2e6',
                 'overflowY': 'auto',
                 'height': '100vh',
                 'position': 'sticky',
                 'top': '0',
+                'flexShrink': '0',
             }
         ),
         # Content area
         html.Div([
-            html.H1("0DTE Strategy Calculator"),
+            html.H1("0DTE Strategy Calculator", style={'fontSize': '22px', 'marginBottom': '12px'}),
             dcc.Tabs(
                 id='main-tabs',
                 value='historical',

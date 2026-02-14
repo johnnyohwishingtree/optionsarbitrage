@@ -10,26 +10,11 @@ from dash import html, dcc, callback, Input, Output, State, no_update
 import plotly.graph_objects as go
 
 from src.config import IB_HOST, IB_PORT
-
-
-# ---------------------------------------------------------------------------
-# Styles
-# ---------------------------------------------------------------------------
-
-SECTION_STYLE = {
-    'border': '1px solid #dee2e6',
-    'borderRadius': '6px',
-    'padding': '16px',
-    'marginBottom': '20px',
-    'backgroundColor': '#ffffff',
-}
-
-METRIC_STYLE = {
-    'display': 'inline-block',
-    'minWidth': '150px',
-    'padding': '10px',
-    'textAlign': 'center',
-}
+from src.pages.components import (
+    SECTION_STYLE, TABLE_STYLE, COLOR_POSITIVE, COLOR_NEGATIVE, COLOR_NEUTRAL,
+    COLOR_INFO, COLOR_WARNING_TEXT, COLOR_WARNING_BG,
+    metric_card as _shared_metric_card,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -94,6 +79,12 @@ def toggle_auto_refresh(toggle_val):
     State('config-store', 'data'),
 )
 def update_live_trading(n_clicks, n_intervals, config):
+    if not n_clicks and not n_intervals:
+        return html.Div(
+            "Click Refresh to connect to IB Gateway.",
+            style={'color': COLOR_NEUTRAL, 'padding': '40px', 'textAlign': 'center'},
+        ), ""
+
     from datetime import datetime
     import pytz
 
@@ -112,10 +103,17 @@ def update_live_trading(n_clicks, n_intervals, config):
 
         if not client.connect():
             return html.Div([
-                html.Div("Failed to connect to IB Gateway", style={'color': '#dc3545', 'fontWeight': 'bold'}),
+                html.Div(
+                    "Failed to connect to IB Gateway",
+                    style={'color': COLOR_NEGATIVE, 'fontWeight': 'bold', 'fontSize': '16px'},
+                ),
                 html.P(
-                    f"Make sure IB Gateway is running on {IB_HOST}:{IB_PORT} (Paper Trading)",
-                    style={'color': '#6c757d'},
+                    f"Make sure IB Gateway is running on {IB_HOST}:{IB_PORT} (Paper Trading).",
+                    style={'color': COLOR_NEUTRAL, 'marginTop': '8px'},
+                ),
+                html.P(
+                    "1. Open TWS or IB Gateway  2. Enable API connections  3. Check port matches",
+                    style={'color': COLOR_NEUTRAL, 'fontSize': '13px'},
                 ),
             ], style=SECTION_STYLE), timestamp
 
@@ -178,10 +176,10 @@ def update_live_trading(n_clicks, n_intervals, config):
 
     except ImportError:
         return html.Div([
-            html.Div("IB Gateway client not available", style={'color': '#856404', 'fontWeight': 'bold'}),
+            html.Div("IB Gateway client not available", style={'color': COLOR_WARNING_TEXT, 'fontWeight': 'bold'}),
             html.P(
                 "Install ib_insync or ib_async to use live trading features.",
-                style={'color': '#6c757d'},
+                style={'color': COLOR_NEUTRAL},
             ),
         ], style=SECTION_STYLE), timestamp
 
@@ -198,10 +196,7 @@ def update_live_trading(n_clicks, n_intervals, config):
 # ---------------------------------------------------------------------------
 
 def _metric_card(label, value):
-    return html.Div([
-        html.Div(label, style={'fontSize': '12px', 'color': '#6c757d'}),
-        html.Div(value, style={'fontSize': '20px', 'fontWeight': 'bold', 'fontFamily': 'monospace'}),
-    ], style=METRIC_STYLE)
+    return _shared_metric_card(label, value)
 
 
 def _time_to_close_display(now_et):
@@ -213,9 +208,9 @@ def _time_to_close_display(now_et):
         minutes = int((delta.total_seconds() % 3600) // 60)
         return html.Div(
             f"Time to market close: {hours}h {minutes}m",
-            style={'marginTop': '10px', 'color': '#17a2b8', 'fontWeight': 'bold'},
+            style={'marginTop': '10px', 'color': COLOR_INFO, 'fontWeight': 'bold'},
         )
-    return html.Div("Market closed", style={'marginTop': '10px', 'color': '#6c757d'})
+    return html.Div("Market closed", style={'marginTop': '10px', 'color': COLOR_NEUTRAL})
 
 
 def _build_options_section(option_positions):
@@ -235,21 +230,32 @@ def _build_options_section(option_positions):
 
         rows.append(html.Tr([
             html.Td(contract.symbol),
-            html.Td(f"${contract.strike:.0f}"),
+            html.Td(f"${contract.strike:.0f}", style={'fontFamily': 'monospace', 'textAlign': 'right'}),
             html.Td("Call" if contract.right == 'C' else "Put"),
             html.Td(getattr(contract, 'lastTradeDateOrContractMonth', 'N/A')),
             html.Td(
                 f"{position_size:+d}",
-                style={'color': '#dc3545' if position_size < 0 else '#28a745', 'fontWeight': 'bold'},
+                style={
+                    'color': COLOR_NEGATIVE if position_size < 0 else COLOR_POSITIVE,
+                    'fontWeight': 'bold',
+                    'fontFamily': 'monospace',
+                    'textAlign': 'right',
+                },
             ),
-            html.Td(f"${avg_cost / 100:.2f}"),
-            html.Td(f"${market_value:,.2f}" if market_value else "N/A"),
+            html.Td(f"${avg_cost / 100:.2f}", style={'fontFamily': 'monospace', 'textAlign': 'right'}),
+            html.Td(
+                f"${market_value:,.2f}" if market_value else "N/A",
+                style={'fontFamily': 'monospace', 'textAlign': 'right'},
+            ),
             html.Td(
                 f"${unrealized:,.2f}" if unrealized is not None else "N/A",
                 style={
-                    'color': '#28a745' if unrealized and unrealized > 0
-                    else '#dc3545' if unrealized and unrealized < 0
-                    else '#6c757d',
+                    'fontFamily': 'monospace',
+                    'textAlign': 'right',
+                    'fontWeight': 'bold',
+                    'color': COLOR_POSITIVE if unrealized and unrealized > 0
+                    else COLOR_NEGATIVE if unrealized and unrealized < 0
+                    else COLOR_NEUTRAL,
                 },
             ),
         ]))
@@ -261,12 +267,13 @@ def _build_options_section(option_positions):
 
     return html.Div([
         html.H4("Option Positions"),
-        html.Table(rows, style={'width': '100%', 'borderCollapse': 'collapse', 'fontSize': '14px'}),
+        html.Table(rows, style=TABLE_STYLE),
         html.Div([
             html.Span("IB Reported Total P&L: ", style={'fontWeight': 'bold'}),
             html.Span(f"${total_unrealized:,.2f}", style={
                 'fontWeight': 'bold',
-                'color': '#28a745' if total_unrealized >= 0 else '#dc3545',
+                'fontFamily': 'monospace',
+                'color': COLOR_POSITIVE if total_unrealized >= 0 else COLOR_NEGATIVE,
             }),
         ], style={'marginTop': '12px'}),
     ], style=SECTION_STYLE)
@@ -295,9 +302,15 @@ def _build_stocks_section(stock_positions):
         html.H4("Stock Positions"),
         html.Div(
             "Stock positions detected - may indicate option assignment",
-            style={'color': '#856404', 'backgroundColor': '#fff3cd', 'padding': '8px', 'borderRadius': '4px', 'marginBottom': '10px'},
+            style={
+                'color': COLOR_WARNING_TEXT,
+                'backgroundColor': COLOR_WARNING_BG,
+                'padding': '8px',
+                'borderRadius': '4px',
+                'marginBottom': '10px',
+            },
         ),
-        html.Table(rows, style={'width': '100%', 'borderCollapse': 'collapse', 'fontSize': '14px'}),
+        html.Table(rows, style=TABLE_STYLE),
     ], style=SECTION_STYLE)
 
 
@@ -332,12 +345,17 @@ def _build_settlement_pnl(option_positions, sym1, sym2, sym1_price, sym2_price):
         label = f"{contract.symbol} {contract.strike:.0f}{'C' if contract.right == 'C' else 'P'}"
         rows.append(html.Tr([
             html.Td(label),
-            html.Td(str(int(position_size))),
-            html.Td(f"${avg_cost_per_share:.2f}"),
-            html.Td(f"${intrinsic:.2f}"),
+            html.Td(str(int(position_size)), style={'fontFamily': 'monospace', 'textAlign': 'right'}),
+            html.Td(f"${avg_cost_per_share:.2f}", style={'fontFamily': 'monospace', 'textAlign': 'right'}),
+            html.Td(f"${intrinsic:.2f}", style={'fontFamily': 'monospace', 'textAlign': 'right'}),
             html.Td(
                 f"${pnl:,.2f}",
-                style={'color': '#28a745' if pnl >= 0 else '#dc3545', 'fontWeight': 'bold'},
+                style={
+                    'color': COLOR_POSITIVE if pnl >= 0 else COLOR_NEGATIVE,
+                    'fontWeight': 'bold',
+                    'fontFamily': 'monospace',
+                    'textAlign': 'right',
+                },
             ),
         ]))
 
@@ -345,19 +363,21 @@ def _build_settlement_pnl(option_positions, sym1, sym2, sym1_price, sym2_price):
         html.H4("Estimated P&L If Market Closes Now"),
         html.P(
             f"Based on intrinsic value at current prices: {sym1} ${sym1_price:.2f}, {sym2} ${sym2_price:.2f}",
-            style={'fontSize': '13px', 'color': '#6c757d'},
+            style={'fontSize': '13px', 'color': COLOR_NEUTRAL},
         ),
-        html.Table(rows, style={'width': '100%', 'borderCollapse': 'collapse', 'fontSize': '14px'}),
+        html.Table(rows, style=TABLE_STYLE),
         html.Div([
-            html.Span("Net Settlement P&L: ", style={'fontWeight': 'bold', 'fontSize': '16px'}),
+            html.Span("Net Settlement P&L: ", style={'fontWeight': 'bold', 'fontSize': '18px'}),
             html.Span(
                 f"${total_pnl:,.2f}",
                 style={
-                    'fontSize': '16px', 'fontWeight': 'bold',
-                    'color': '#28a745' if total_pnl >= 0 else '#dc3545',
+                    'fontSize': '18px',
+                    'fontWeight': 'bold',
+                    'fontFamily': 'monospace',
+                    'color': COLOR_POSITIVE if total_pnl >= 0 else COLOR_NEGATIVE,
                 },
             ),
-        ], style={'marginTop': '12px'}),
+        ], style={'marginTop': '12px', 'borderTop': '2px solid #dee2e6', 'paddingTop': '12px'}),
     ], style=SECTION_STYLE)
 
 

@@ -11,6 +11,7 @@ from plotly.subplots import make_subplots
 from src.data_loader import load_underlying_prices, get_symbol_dataframes
 from src.normalization import calculate_underlying_divergence
 from src.config import get_qty_ratio, get_strike_step
+from src.pages.components import metric_card
 
 
 def layout():
@@ -24,8 +25,13 @@ def layout():
 @callback(
     Output('divergence-content', 'children'),
     Input('config-store', 'data'),
+    Input('main-tabs', 'value'),
 )
-def update_divergence(config):
+def update_divergence(config, active_tab):
+    from dash import no_update
+    if active_tab != 'divergence':
+        return no_update
+
     if not config or not config.get('date'):
         return html.P("Select a date and symbol pair to view divergence.")
 
@@ -58,11 +64,11 @@ def update_divergence(config):
         # Metrics
         leading = sym2 if max_gap_val > 0 else sym1
         metrics = html.Div([
-            _metric("Max Gap", f"{abs(max_gap_val):.4f}%"),
-            _metric("Max Gap Time", f"{max_gap_time} ({leading} leading)"),
-            _metric("Current Gap", f"{current_gap:+.4f}%"),
-            _metric("Dollar Gap (norm)", f"${max_dollar_gap:+.2f}"),
-        ], style={'display': 'flex', 'gap': '20px', 'marginBottom': '20px'})
+            metric_card("Max Gap", f"{abs(max_gap_val):.4f}%"),
+            metric_card("Max Gap Time", f"{max_gap_time} ({leading} leading)"),
+            metric_card("Current Gap", f"{current_gap:+.4f}%"),
+            metric_card("Dollar Gap (norm)", f"${max_dollar_gap:+.2f}"),
+        ], style={'display': 'flex', 'gap': '16px', 'marginBottom': '20px'})
 
         # Chart
         fig = make_subplots(
@@ -149,8 +155,3 @@ def update_divergence(config):
         ])
 
 
-def _metric(label, value):
-    return html.Div([
-        html.Div(label, style={'fontSize': '12px', 'color': '#666'}),
-        html.Div(value, style={'fontSize': '18px', 'fontWeight': 'bold'}),
-    ], style={'minWidth': '120px'})

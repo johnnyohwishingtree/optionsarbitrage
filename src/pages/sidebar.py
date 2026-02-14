@@ -35,23 +35,32 @@ def layout():
         for raw, fmt in dates
     ]
 
+    section_label = {
+        'fontSize': '11px',
+        'fontWeight': '600',
+        'textTransform': 'uppercase',
+        'letterSpacing': '0.5px',
+        'color': '#6c757d',
+        'marginBottom': '6px',
+    }
+
     return html.Div([
-        html.H3("Configuration"),
+        html.H3("Configuration", style={'marginTop': '0', 'marginBottom': '16px'}),
 
         # Date Selection
-        html.H5("Date Selection"),
+        html.Div("Date", style=section_label),
         dcc.Dropdown(
             id='date-selector',
             options=date_options,
             value=dates[0][0],
             clearable=False,
         ),
-        html.Div(id='data-load-status'),
+        html.Div(id='data-load-status', style={'marginTop': '4px'}),
 
-        html.Hr(),
+        html.Hr(style={'margin': '14px 0'}),
 
         # Symbol Pair
-        html.H5("Symbol Pair"),
+        html.Div("Symbol Pair", style=section_label),
         dcc.Dropdown(
             id='pair-selector',
             options=[],  # populated by callback
@@ -59,39 +68,52 @@ def layout():
         ),
         html.Div(id='pair-info'),
 
-        html.Hr(),
+        html.Hr(style={'margin': '14px 0'}),
 
         # Entry Time
-        html.H5("Entry Time"),
-        dcc.Slider(
-            id='entry-time-slider',
-            min=0,
-            max=0,
-            step=1,
-            value=0,
-            marks={},
-            tooltip={'placement': 'bottom'},
+        html.Div("Entry Time", style=section_label),
+        html.Div(
+            dcc.Slider(
+                id='entry-time-slider',
+                min=0,
+                max=0,
+                step=1,
+                value=0,
+                marks={},
+                tooltip={'placement': 'bottom', 'always_visible': True},
+            ),
+            style={'padding': '0 4px'},
         ),
-        html.Div(id='entry-time-display'),
-        html.Div(id='entry-prices-display'),
+        html.Div(id='entry-time-display', style={'fontWeight': 'bold', 'marginTop': '4px'}),
+        html.Div(id='entry-prices-display', style={
+            'fontSize': '13px',
+            'fontFamily': 'monospace',
+            'marginTop': '4px',
+        }),
 
-        html.Hr(),
+        html.Hr(style={'margin': '14px 0'}),
 
         # Strike Configuration
-        html.H5("Strike Configuration"),
-        html.Label("SYM1 Strike"),
-        dcc.Input(id='sym1-strike-input', type='number', step=1, style={'width': '100%'}),
-        html.Label("SYM2 Strike", style={'marginTop': '10px'}),
-        dcc.Input(id='sym2-strike-input', type='number', step=1, style={'width': '100%'}),
-        html.Div(id='moneyness-check', style={'marginTop': '10px'}),
+        html.Div("Strikes", style=section_label),
+        html.Div([
+            html.Div([
+                html.Label("SYM1", style={'fontSize': '12px', 'fontWeight': 'bold'}),
+                dcc.Input(id='sym1-strike-input', type='number', step=1, min=1, style={'width': '100%'}),
+            ], style={'flex': '1', 'marginRight': '8px'}),
+            html.Div([
+                html.Label("SYM2", style={'fontSize': '12px', 'fontWeight': 'bold'}),
+                dcc.Input(id='sym2-strike-input', type='number', step=1, min=1, style={'width': '100%'}),
+            ], style={'flex': '1'}),
+        ], style={'display': 'flex'}),
+        html.Div(id='moneyness-check', style={'marginTop': '8px'}),
 
-        html.Hr(),
+        html.Hr(style={'margin': '14px 0'}),
 
         # Strategy Direction
-        html.H5("Strategy Direction"),
-        html.Label("Call Spread Direction"),
+        html.Div("Direction", style=section_label),
+        html.Label("Call Spread", style={'fontSize': '12px', 'fontWeight': 'bold'}),
         dcc.Dropdown(id='call-direction-select', clearable=False),
-        html.Label("Put Spread Direction", style={'marginTop': '10px'}),
+        html.Label("Put Spread", style={'marginTop': '8px', 'fontSize': '12px', 'fontWeight': 'bold'}),
         dcc.Dropdown(id='put-direction-select', clearable=False),
     ])
 
@@ -112,7 +134,7 @@ def update_pairs(selected_date):
         options = [{'label': k, 'value': k} for k in pairs.keys()]
         default = options[0]['value'] if options else None
         return options, default
-    except FileNotFoundError:
+    except Exception:
         return [], None
 
 
@@ -159,12 +181,24 @@ def update_controls(selected_date, selected_pair):
             status_parts.append(f"{len(df_bidask)} bid/ask records")
         status = html.Div([html.Small(s) for s in status_parts])
 
-        # Time slider
+        # Time slider — show only 5 sparse marks to avoid label overlap
         time_labels = sym1_df['time_label'].tolist()
         max_idx = len(time_labels) - 1
-        # Show marks at every ~20th point
-        step = max(1, len(time_labels) // 10)
-        marks = {i: time_labels[i].replace(' ET', '') for i in range(0, len(time_labels), step)}
+        if max_idx > 0:
+            # Pick 5 evenly spaced marks: open, mid-morning, noon, mid-afternoon, close
+            mark_indices = [
+                0,
+                max_idx // 4,
+                max_idx // 2,
+                3 * max_idx // 4,
+                max_idx,
+            ]
+            marks = {
+                i: {'label': time_labels[i].replace(' ET', ''), 'style': {'fontSize': '11px'}}
+                for i in mark_indices
+            }
+        else:
+            marks = {0: {'label': time_labels[0].replace(' ET', ''), 'style': {'fontSize': '11px'}}}
 
         # Strikes
         qty_ratio = get_qty_ratio(sym2)
@@ -271,8 +305,11 @@ def update_moneyness(config):
     if not config or not config.get('sym1_strike') or not config.get('sym2_strike'):
         return ""
 
-    sym1_price = config['entry_sym1_price']
-    sym2_price = config['entry_sym2_price']
+    sym1_price = config.get('entry_sym1_price')
+    sym2_price = config.get('entry_sym2_price')
+    if not sym1_price or not sym2_price:
+        return ""
+
     sym1_strike = config['sym1_strike']
     sym2_strike = config['sym2_strike']
 

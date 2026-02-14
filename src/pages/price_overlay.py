@@ -16,6 +16,10 @@ from src.normalization import normalize_option_prices, calculate_spread, calcula
 from src.pricing import get_option_price_from_db
 from src.pnl import calculate_best_worst_case_with_basis_drift
 from src.config import get_qty_ratio
+from src.pages.components import (
+    metric_card, COLOR_SUCCESS_TEXT, COLOR_SUCCESS_BG,
+    COLOR_WARNING_TEXT, COLOR_WARNING_BG,
+)
 
 
 def layout():
@@ -40,8 +44,13 @@ def layout():
     Output('overlay-content', 'children'),
     Input('config-store', 'data'),
     Input('overlay-right', 'value'),
+    Input('main-tabs', 'value'),
 )
-def update_overlay(config, overlay_right):
+def update_overlay(config, overlay_right, active_tab):
+    from dash import no_update
+    if active_tab != 'price_overlay':
+        return no_update
+
     if not config or not config.get('date'):
         return html.P("Select a date and symbol pair to view overlay.")
 
@@ -57,6 +66,10 @@ def update_overlay(config, overlay_right):
 
         df_underlying = load_underlying_prices(date)
         sym1_df, sym2_df = get_symbol_dataframes(df_underlying, sym1, sym2)
+
+        if sym1_df.empty or sym2_df.empty:
+            return html.P("No underlying data for selected symbols.", style={'color': '#856404'})
+
         df_options = load_options_data(date)
         df_bidask = load_bidask_data(date)
 
@@ -74,6 +87,8 @@ def update_overlay(config, overlay_right):
 
         open_sym1 = sym1_df.iloc[0]['close']
         open_sym2 = sym2_df.iloc[0]['close']
+        if open_sym1 == 0:
+            return html.P("Invalid underlying price data (zero price).", style={'color': '#856404'})
         open_ratio = open_sym2 / open_sym1
 
         # Get option data for the selected strikes
@@ -245,23 +260,44 @@ def update_overlay(config, overlay_right):
         # Metrics
         metrics = html.Div([
             html.Div([
-                _metric("Max Gap", f"${abs(max_spread_row['spread']):.2f}"),
-                _metric("Best Worst-Case", f"${accurate_worst_pnl:,.2f}"),
-                _metric("Direction", f"{sym2} > {sym1}" if max_spread_row['spread'] > 0 else f"{sym1} > {sym2}"),
-                _metric("Max Gap Time", max_spread_row['time_label']),
-            ], style={'display': 'flex', 'gap': '20px', 'marginBottom': '20px'}),
+                metric_card("Max Gap", f"${abs(max_spread_row['spread']):.2f}"),
+                metric_card("Best Worst-Case", f"${accurate_worst_pnl:,.2f}"),
+                metric_card("Direction", f"{sym2} > {sym1}" if max_spread_row['spread'] > 0 else f"{sym1} > {sym2}"),
+                metric_card("Max Gap Time", max_spread_row['time_label']),
+            ], style={'display': 'flex', 'gap': '16px', 'marginBottom': '20px'}),
         ])
 
         safe_section = []
         if accurate_worst_pnl > 0:
             safe_section.append(html.Div(
-                f"SAFE ENTRY at {best_worst_row['time_label']} — worst-case profit ${accurate_worst_pnl:,.2f}",
-                style={'color': '#155724', 'backgroundColor': '#d4edda', 'padding': '10px', 'borderRadius': '4px'}
+                [
+                    html.Strong("SAFE ENTRY"),
+                    html.Span(
+                        f" at {best_worst_row['time_label']} — worst-case profit ",
+                    ),
+                    html.Strong(f"${accurate_worst_pnl:,.2f}", style={'fontFamily': 'monospace'}),
+                ],
+                style={
+                    'color': COLOR_SUCCESS_TEXT,
+                    'backgroundColor': COLOR_SUCCESS_BG,
+                    'padding': '12px',
+                    'borderRadius': '4px',
+                    'fontSize': '15px',
+                },
             ))
         else:
             safe_section.append(html.Div(
-                f"Entry at {best_worst_row['time_label']} has worst-case loss of ${abs(accurate_worst_pnl):,.2f}",
-                style={'color': '#856404', 'backgroundColor': '#fff3cd', 'padding': '10px', 'borderRadius': '4px'}
+                [
+                    html.Span(f"Entry at {best_worst_row['time_label']} has worst-case loss of "),
+                    html.Strong(f"${abs(accurate_worst_pnl):,.2f}", style={'fontFamily': 'monospace'}),
+                ],
+                style={
+                    'color': COLOR_WARNING_TEXT,
+                    'backgroundColor': COLOR_WARNING_BG,
+                    'padding': '12px',
+                    'borderRadius': '4px',
+                    'fontSize': '15px',
+                },
             ))
 
         return html.Div([
@@ -281,8 +317,3 @@ def update_overlay(config, overlay_right):
         ])
 
 
-def _metric(label, value):
-    return html.Div([
-        html.Div(label, style={'fontSize': '12px', 'color': '#666'}),
-        html.Div(value, style={'fontSize': '18px', 'fontWeight': 'bold'}),
-    ], style={'minWidth': '120px'})

@@ -18,6 +18,7 @@ from src.data_loader import (
     get_symbol_dataframes,
 )
 from src.config import DEFAULT_MIN_VOLUME
+from src.pages.components import COLOR_NEUTRAL
 
 
 # Column definitions for the results DataTable
@@ -51,23 +52,39 @@ def _make_table(table_id: str) -> dash_table.DataTable:
         style_table={'overflowX': 'auto'},
         style_cell={
             'textAlign': 'center',
-            'padding': '8px',
+            'padding': '6px 8px',
             'fontSize': '13px',
-            'minWidth': '70px',
+            'minWidth': '60px',
+            'fontFamily': 'monospace',
         },
+        style_cell_conditional=[
+            {'if': {'column_id': 'direction'}, 'textAlign': 'left', 'minWidth': '120px', 'fontFamily': 'sans-serif'},
+            {'if': {'column_id': 'moneyness'}, 'textAlign': 'left', 'fontFamily': 'sans-serif'},
+            {'if': {'column_id': 'liquidity'}, 'minWidth': '50px', 'fontFamily': 'sans-serif'},
+            {'if': {'column_id': 'price_source'}, 'minWidth': '50px', 'fontFamily': 'sans-serif'},
+            {'if': {'column_id': 'credit'}, 'textAlign': 'right'},
+            {'if': {'column_id': 'worst_case_pnl'}, 'textAlign': 'right'},
+            {'if': {'column_id': 'risk_reward'}, 'textAlign': 'right'},
+            {'if': {'column_id': 'max_gap'}, 'textAlign': 'right'},
+            {'if': {'column_id': 'sym1_strike'}, 'textAlign': 'right'},
+            {'if': {'column_id': 'sym2_strike'}, 'textAlign': 'right'},
+            {'if': {'column_id': 'sym1_vol'}, 'textAlign': 'right'},
+            {'if': {'column_id': 'sym2_vol'}, 'textAlign': 'right'},
+        ],
         style_header={
             'backgroundColor': '#f8f9fa',
             'fontWeight': 'bold',
             'borderBottom': '2px solid #dee2e6',
+            'fontFamily': 'sans-serif',
         },
         style_data_conditional=[
             {
                 'if': {'filter_query': '{worst_case_pnl} >= 0'},
-                'backgroundColor': '#d4edda',
+                'backgroundColor': '#eaf7ed',
             },
             {
                 'if': {'filter_query': '{worst_case_pnl} < -500'},
-                'backgroundColor': '#f8d7da',
+                'backgroundColor': '#fceced',
             },
             {
                 'if': {'filter_query': '{liquidity} = "LOW"'},
@@ -174,12 +191,27 @@ def layout():
                             id='scanner-rank-tabs',
                             value='safety',
                             children=[
-                                dcc.Tab(label='Ranked by Safety', value='safety'),
-                                dcc.Tab(label='Ranked by Profit', value='profit'),
-                                dcc.Tab(label='Ranked by Risk/Reward', value='risk_reward'),
+                                dcc.Tab(
+                                    label='Ranked by Safety',
+                                    value='safety',
+                                    children=[_make_table('scanner-table-safety')],
+                                ),
+                                dcc.Tab(
+                                    label='Ranked by Profit',
+                                    value='profit',
+                                    children=[_make_table('scanner-table-profit')],
+                                ),
+                                dcc.Tab(
+                                    label='Ranked by Risk/Reward',
+                                    value='risk_reward',
+                                    children=[_make_table('scanner-table-risk_reward')],
+                                ),
                             ],
                         ),
-                        html.Div(id='scanner-table-container', style={'marginTop': '10px'}),
+                        html.Div(
+                            "Click any cell to apply that row to the sidebar for full analysis.",
+                            style={'marginTop': '8px', 'color': COLOR_NEUTRAL, 'fontSize': '12px'},
+                        ),
                     ],
                 ),
             ],
@@ -203,125 +235,113 @@ def run_scan(n_clicks, config, scanner_right, min_volume, hide_illiquid_val):
     if not n_clicks or not config or not config.get('date'):
         return no_update, no_update, no_update
 
-    date_str = config['date']
-    sym1 = config['sym1']
-    sym2 = config['sym2']
-    qty_ratio = config['qty_ratio']
-
-    hide_illiquid = 'hide' in (hide_illiquid_val or [])
-    min_vol = int(min_volume) if min_volume else DEFAULT_MIN_VOLUME
-
-    # Load data
     try:
+        date_str = config['date']
+        sym1 = config['sym1']
+        sym2 = config['sym2']
+        qty_ratio = config['qty_ratio']
+
+        hide_illiquid = 'hide' in (hide_illiquid_val or [])
+        min_vol = int(min_volume) if min_volume is not None else DEFAULT_MIN_VOLUME
+
+        # Load data
         df_underlying = load_underlying_prices(date_str)
         df_options = load_options_data(date_str)
         df_bidask = load_bidask_data(date_str)
-    except FileNotFoundError as e:
-        return [], html.Div(str(e), style={'color': 'red'}), {'display': 'none'}
 
-    if df_options is None and df_bidask is None:
-        return [], html.Div(
-            "No options data available for this date.",
-            style={'color': 'red'},
-        ), {'display': 'none'}
+        if df_options is None and df_bidask is None:
+            return [], html.Div(
+                "No options data available for this date.",
+                style={'color': 'red'},
+            ), {'display': 'none'}
 
-    sym1_df, sym2_df = get_symbol_dataframes(df_underlying, sym1, sym2)
+        sym1_df, sym2_df = get_symbol_dataframes(df_underlying, sym1, sym2)
 
-    if sym1_df.empty or sym2_df.empty:
-        return [], html.Div(
-            f"No underlying data for {sym1} or {sym2}.",
-            style={'color': 'red'},
-        ), {'display': 'none'}
+        if sym1_df.empty or sym2_df.empty:
+            return [], html.Div(
+                f"No underlying data for {sym1} or {sym2}.",
+                style={'color': 'red'},
+            ), {'display': 'none'}
 
-    # Determine data source: prefer TRADES, fall back to BID_ASK
-    if df_options is not None:
-        has_volume = True
-        price_col = 'open'
-    else:
-        has_volume = False
-        price_col = 'midpoint'
+        # Determine data source: prefer TRADES, fall back to BID_ASK
+        if df_options is not None:
+            has_volume = True
+            price_col = 'open'
+        else:
+            has_volume = False
+            price_col = 'midpoint'
 
-    # Open prices and ratio
-    open_sym1 = sym1_df.iloc[0]['close']
-    open_sym2 = sym2_df.iloc[0]['close']
-    open_ratio = open_sym2 / open_sym1
+        # Open prices and ratio
+        open_sym1 = sym1_df.iloc[0]['close']
+        open_sym2 = sym2_df.iloc[0]['close']
+        open_ratio = open_sym2 / open_sym1
 
-    # Run scan
-    results = scan_all_pairs(
-        df_options=df_options,
-        df_bidask=df_bidask,
-        sym1_df=sym1_df,
-        sym2_df=sym2_df,
-        sym1=sym1,
-        sym2=sym2,
-        scanner_right=scanner_right,
-        open_ratio=open_ratio,
-        open_sym1=open_sym1,
-        open_sym2=open_sym2,
-        qty_ratio=qty_ratio,
-        has_volume=has_volume,
-        price_col=price_col,
-        min_volume=min_vol,
-        hide_illiquid=hide_illiquid,
-    )
+        # Run scan
+        results = scan_all_pairs(
+            df_options=df_options,
+            df_bidask=df_bidask,
+            sym1_df=sym1_df,
+            sym2_df=sym2_df,
+            sym1=sym1,
+            sym2=sym2,
+            scanner_right=scanner_right,
+            open_ratio=open_ratio,
+            open_sym1=open_sym1,
+            open_sym2=open_sym2,
+            qty_ratio=qty_ratio,
+            has_volume=has_volume,
+            price_col=price_col,
+            min_volume=min_vol,
+            hide_illiquid=hide_illiquid,
+        )
 
-    if not results:
-        return [], html.Div(
-            "No results found. Try lowering min volume or unchecking 'Hide illiquid'.",
-            style={'color': '#856404'},
-        ), {'display': 'none'}
+        if not results:
+            return [], html.Div(
+                "No results found. Try lowering min volume or unchecking 'Hide illiquid'.",
+                style={'color': '#856404'},
+            ), {'display': 'none'}
 
-    # Convert to dicts for storage
-    right_label = 'Puts' if scanner_right == 'P' else 'Calls'
-    result_dicts = []
-    for r in results:
-        d = asdict(r)
-        # Cap risk_reward for display (inf -> 999.99)
-        if d['risk_reward'] == float('inf') or d['risk_reward'] > 999.99:
-            d['risk_reward'] = 999.99
-        result_dicts.append(d)
+        # Convert to dicts for storage
+        right_label = 'Puts' if scanner_right == 'P' else 'Calls'
+        result_dicts = []
+        for r in results:
+            d = asdict(r)
+            # Cap risk_reward for display (inf -> 999.99)
+            if d['risk_reward'] == float('inf') or d['risk_reward'] > 999.99:
+                d['risk_reward'] = 999.99
+            result_dicts.append(d)
 
-    status = html.Div([
-        html.Strong(f"Found {len(result_dicts)} {right_label.lower()} pair(s)"),
-        html.Span(
-            f" | {sym1}/{sym2} | {date_str} | "
-            f"Source: {'TRADES + BID_ASK' if has_volume and df_bidask is not None else 'TRADES' if has_volume else 'BID_ASK'}",
-            style={'color': '#6c757d'},
-        ),
-    ])
+        status = html.Div([
+            html.Strong(f"Found {len(result_dicts)} {right_label.lower()} pair(s)"),
+            html.Span(
+                f" | {sym1}/{sym2} | {date_str} | "
+                f"Source: {'TRADES + BID_ASK' if has_volume and df_bidask is not None else 'TRADES' if has_volume else 'BID_ASK'}",
+                style={'color': COLOR_NEUTRAL},
+            ),
+        ])
 
-    return result_dicts, status, {'display': 'block'}
+        return result_dicts, status, {'display': 'block'}
+
+    except Exception as e:
+        return [], html.Div(f"Scan error: {e}", style={'color': '#dc3545'}), {'display': 'none'}
 
 
 @callback(
-    Output('scanner-table-container', 'children'),
-    Input('scanner-rank-tabs', 'value'),
+    Output('scanner-table-safety', 'data'),
+    Output('scanner-table-profit', 'data'),
+    Output('scanner-table-risk_reward', 'data'),
     Input('scanner-results-store', 'data'),
 )
-def update_ranking_table(rank_by, result_dicts):
-    """Re-rank and display results when the ranking tab changes."""
+def update_ranking_tables(result_dicts):
+    """Populate all three ranking tables when scan results change."""
     if not result_dicts:
-        return html.Div("No results to display.")
+        return [], [], []
 
-    # Re-sort the dicts based on selected ranking
-    if rank_by == 'profit':
-        sorted_dicts = sorted(result_dicts, key=lambda r: r['credit'], reverse=True)
-    elif rank_by == 'risk_reward':
-        sorted_dicts = sorted(result_dicts, key=lambda r: r['risk_reward'], reverse=True)
-    else:  # safety
-        sorted_dicts = sorted(result_dicts, key=lambda r: r['worst_case_pnl'], reverse=True)
+    safety = sorted(result_dicts, key=lambda r: r['worst_case_pnl'], reverse=True)
+    profit = sorted(result_dicts, key=lambda r: r['credit'], reverse=True)
+    risk_reward = sorted(result_dicts, key=lambda r: r['risk_reward'], reverse=True)
 
-    table_id = f'scanner-table-{rank_by}'
-    table = _make_table(table_id)
-    table.data = sorted_dicts
-
-    return html.Div([
-        table,
-        html.Div(
-            "Click any row to apply it to the sidebar for analysis.",
-            style={'marginTop': '8px', 'color': '#6c757d', 'fontSize': '12px'},
-        ),
-    ])
+    return safety, profit, risk_reward
 
 
 @callback(
@@ -349,13 +369,16 @@ def apply_scan_result(
 
     # Determine which table was clicked
     triggered_id = ctx.triggered_id
-    if triggered_id == 'scanner-table-safety' and safety_cell:
-        row = safety_data[safety_cell['row']]
-    elif triggered_id == 'scanner-table-profit' and profit_cell:
-        row = profit_data[profit_cell['row']]
-    elif triggered_id == 'scanner-table-risk_reward' and rr_cell:
-        row = rr_data[rr_cell['row']]
-    else:
+    try:
+        if triggered_id == 'scanner-table-safety' and safety_cell:
+            row = safety_data[safety_cell['row']]
+        elif triggered_id == 'scanner-table-profit' and profit_cell:
+            row = profit_data[profit_cell['row']]
+        elif triggered_id == 'scanner-table-risk_reward' and rr_cell:
+            row = rr_data[rr_cell['row']]
+        else:
+            return no_update
+    except (IndexError, TypeError, KeyError):
         return no_update
 
     return {

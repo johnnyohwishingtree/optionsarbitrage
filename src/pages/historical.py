@@ -20,51 +20,12 @@ from src.pnl import (
     calculate_settlement_value,
     calculate_best_worst_case_with_basis_drift,
 )
-
-
-# ---------------------------------------------------------------------------
-# Styles
-# ---------------------------------------------------------------------------
-
-SECTION_STYLE = {
-    'border': '1px solid #dee2e6',
-    'borderRadius': '6px',
-    'padding': '16px',
-    'marginBottom': '20px',
-    'backgroundColor': '#ffffff',
-}
-
-TABLE_STYLE = {
-    'width': '100%',
-    'borderCollapse': 'collapse',
-    'fontSize': '14px',
-}
-
-TH_STYLE = {
-    'textAlign': 'left',
-    'borderBottom': '2px solid #dee2e6',
-    'padding': '8px',
-    'backgroundColor': '#f8f9fa',
-}
-
-TD_STYLE = {
-    'padding': '8px',
-    'borderBottom': '1px solid #eee',
-}
-
-TD_RIGHT = {**TD_STYLE, 'textAlign': 'right', 'fontFamily': 'monospace'}
-
-POSITIVE_STYLE = {'color': '#28a745', 'fontWeight': 'bold'}
-NEGATIVE_STYLE = {'color': '#dc3545', 'fontWeight': 'bold'}
-NEUTRAL_STYLE = {'color': '#6c757d'}
-WARNING_STYLE = {
-    'color': '#856404',
-    'backgroundColor': '#fff3cd',
-    'padding': '8px',
-    'borderRadius': '4px',
-    'marginTop': '6px',
-    'fontSize': '13px',
-}
+from src.pages.components import (
+    SECTION_STYLE, TABLE_STYLE, TH_STYLE, TD_STYLE, TD_RIGHT,
+    POSITIVE_STYLE, NEGATIVE_STYLE, NEUTRAL_STYLE, WARNING_STYLE,
+    COLOR_POSITIVE, COLOR_NEGATIVE, COLOR_NEUTRAL,
+    pnl_span,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -74,24 +35,29 @@ WARNING_STYLE = {
 def layout():
     """Return the Historical Analysis tab layout."""
     return html.Div([
-        # Strategy selector
+        # Strategy selector — flex row with vertical centering
         html.Div([
-            html.Label("Strategy Type", style={'fontWeight': 'bold', 'marginRight': '10px'}),
-            dcc.Dropdown(
-                id='strategy-select',
-                options=[
-                    {'label': 'Full (Calls + Puts)', 'value': 'full'},
-                    {'label': 'Calls Only', 'value': 'calls_only'},
-                    {'label': 'Puts Only', 'value': 'puts_only'},
-                ],
-                value='full',
-                clearable=False,
+            html.Label(
+                "Strategy Type",
+                style={'fontWeight': 'bold', 'marginRight': '10px', 'whiteSpace': 'nowrap'},
+            ),
+            html.Div(
+                dcc.Dropdown(
+                    id='strategy-select',
+                    options=[
+                        {'label': 'Full (Calls + Puts)', 'value': 'full'},
+                        {'label': 'Calls Only', 'value': 'calls_only'},
+                        {'label': 'Puts Only', 'value': 'puts_only'},
+                    ],
+                    value='full',
+                    clearable=False,
+                ),
                 style={'width': '250px'},
             ),
         ], style={'display': 'flex', 'alignItems': 'center', 'marginBottom': '20px'}),
 
         # Main analysis output
-        html.Div(id='historical-analysis-output'),
+        dcc.Loading(html.Div(id='historical-analysis-output')),
     ])
 
 
@@ -101,16 +67,7 @@ def layout():
 
 def _pnl_span(value):
     """Return a styled span for a P&L dollar value."""
-    if value > 0:
-        style = POSITIVE_STYLE
-        text = f"+${value:,.2f}"
-    elif value < 0:
-        style = NEGATIVE_STYLE
-        text = f"-${abs(value):,.2f}"
-    else:
-        style = NEUTRAL_STYLE
-        text = "$0.00"
-    return html.Span(text, style=style)
+    return pnl_span(value)
 
 
 def _price_info_cell(info, label):
@@ -190,13 +147,14 @@ def _build_credit_summary(position, show_calls, show_puts):
         items.append(html.Hr(style={'margin': '8px 0'}))
 
     items.append(html.Div([
-        html.Span("Total Credit: ", style={'fontWeight': 'bold', 'fontSize': '16px'}),
+        html.Span("Total Credit: ", style={'fontWeight': 'bold', 'fontSize': '20px'}),
         html.Span(
             f"${position.total_credit:,.2f}" if position.total_credit >= 0 else f"-${abs(position.total_credit):,.2f}",
             style={
-                'fontSize': '16px',
+                'fontSize': '20px',
                 'fontWeight': 'bold',
-                'color': '#28a745' if position.total_credit >= 0 else '#dc3545',
+                'fontFamily': 'monospace',
+                'color': COLOR_POSITIVE if position.total_credit >= 0 else COLOR_NEGATIVE,
             },
         ),
     ]))
@@ -271,13 +229,14 @@ def _build_scenario_block(label, scenario, sym1, sym2):
 
     items = [
         html.Div([
-            html.Span(f"{label} P&L: ", style={'fontWeight': 'bold', 'fontSize': '16px'}),
+            html.Span(f"{label} P&L: ", style={'fontWeight': 'bold', 'fontSize': '18px'}),
             html.Span(
                 f"+${pnl:,.2f}" if pnl >= 0 else f"-${abs(pnl):,.2f}",
                 style={
-                    'fontSize': '16px',
+                    'fontSize': '18px',
                     'fontWeight': 'bold',
-                    'color': '#28a745' if pnl >= 0 else '#dc3545',
+                    'fontFamily': 'monospace',
+                    'color': COLOR_POSITIVE if pnl >= 0 else COLOR_NEGATIVE,
                 },
             ),
         ]),
@@ -313,17 +272,33 @@ def _build_scenario_block(label, scenario, sym1, sym2):
     Output('historical-analysis-output', 'children'),
     Input('config-store', 'data'),
     Input('strategy-select', 'value'),
+    Input('main-tabs', 'value'),
 )
-def update_historical_analysis(config, strategy_type):
+def update_historical_analysis(config, strategy_type, active_tab):
     """
     Main callback: load data, build position, calculate P&L, render everything.
     """
+    if active_tab != 'historical':
+        return no_update
+
     if not config or not config.get('date'):
         return html.Div(
             "Configure date, pair, and strikes in the sidebar to begin analysis.",
             style={'color': '#6c757d', 'padding': '40px', 'textAlign': 'center'},
         )
 
+    try:
+        return _run_historical_analysis(config, strategy_type)
+    except Exception as e:
+        import traceback
+        return html.Div([
+            html.P(f"Analysis error: {e}", style={'color': '#dc3545'}),
+            html.Pre(traceback.format_exc(), style={'fontSize': '11px'}),
+        ])
+
+
+def _run_historical_analysis(config, strategy_type):
+    """Core historical analysis logic, extracted for exception handling."""
     # -----------------------------------------------------------------------
     # Unpack config
     # -----------------------------------------------------------------------
