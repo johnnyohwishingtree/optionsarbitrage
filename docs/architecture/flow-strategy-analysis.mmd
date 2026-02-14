@@ -1,5 +1,5 @@
 %% Flow: Strategy Analysis (Tab 1 — Historical Analysis)
-%% Updated: 2026-02-07
+%% Updated: 2026-02-14
 
 flowchart TD
     LOAD["Load CSVs\ndf_underlying, df_options, df_bidask"]:::data
@@ -10,7 +10,7 @@ flowchart TD
 
     STALE_CHECK{"Any leg is_stale?"}:::function
 
-    STALE_ERROR["Show error: stale price\nst.stop()"]:::external
+    STALE_ERROR["Show error: stale price\nReturn error Div"]:::external
 
     POSITION_BUILDER["Position builder\nQuantity inputs (10 SPY : 1 SPX)\nEditable prices\nCall leg + Put leg"]:::tab
 

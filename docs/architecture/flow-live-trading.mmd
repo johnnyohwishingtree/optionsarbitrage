@@ -1,7 +1,11 @@
 %% Flow: Live Paper Trading (Tab 2)
-%% Updated: 2026-02-07
+%% Updated: 2026-02-14
 
 flowchart TD
+    INITIAL_GUARD{"n_clicks or\nn_intervals?"}:::function
+
+    INITIAL_PROMPT["Show prompt:\nClick Refresh to connect"]:::tab
+
     CONNECT["CLS_IBKRClient.connect()\nIB Gateway 127.0.0.1:4002"]:::module
 
     CONNECT_CHECK{"Connected?"}:::function
@@ -24,6 +28,8 @@ flowchart TD
 
     REFRESH["Refresh button\nRe-fetch all data"]:::tab
 
+    INITIAL_GUARD -->|"no"| INITIAL_PROMPT
+    INITIAL_GUARD -->|"yes"| CONNECT
     CONNECT --> CONNECT_CHECK
     CONNECT_CHECK -->|"no"| CONNECT_ERROR
     CONNECT_CHECK -->|"yes"| ACCOUNT

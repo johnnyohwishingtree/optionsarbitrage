@@ -4,56 +4,143 @@
 
 graph LR
     %% Modules
-    MOD_collect["collect_market_data.py"]:::module
-    MOD_ibkrClient["src/broker/ibkr_client.py"]:::module
-    MOD_pnl["src/pnl.py"]:::module
-    MOD_pricing["src/pricing.py"]:::module
-    TEST_consistency["tests/test_worst_case_consistency.py"]:::function
-    TEST_lockstep["tests/test_worst_case_lockstep.py"]:::function
-    TEST_pnl["tests/test_pnl_calculations.py"]:::function
-
-    %% Discovered modules (not in standard map)
     MOD_app["app.py"]:::module
-    MOD_config["src/config.py"]:::module
-    MOD_models["src/models.py"]:::module
-    MOD_data_loader["src/data_loader.py"]:::module
-    MOD_scanner_engine["src/scanner_engine.py"]:::module
-    MOD_position["src/position.py"]:::module
-    MOD_normalization["src/normalization.py"]:::module
-    MOD_protocol["src/broker/protocol.py"]:::module
-    MOD_mock_broker["src/broker/mock_broker.py"]:::module
-    MOD_sidebar["src/pages/sidebar.py"]:::module
-    MOD_scanner["src/pages/scanner.py"]:::module
-    MOD_live_trading["src/pages/live_trading.py"]:::module
-    MOD_price_overlay["src/pages/price_overlay.py"]:::module
-    MOD_historical["src/pages/historical.py"]:::module
-    MOD_divergence["src/pages/divergence.py"]:::module
+    MOD_collect["collect_market_data.py"]:::module
     MOD_components["src/pages/components.py"]:::module
+    MOD_config["src/config.py"]:::module
+    MOD_data_loader["src/data_loader.py"]:::module
+    MOD_divergence["src/pages/divergence.py"]:::module
+    MOD_historical["src/pages/historical.py"]:::module
+    MOD_ibkrClient["src/broker/ibkr_client.py"]:::module
+    MOD_live_trading["src/pages/live_trading.py"]:::module
+    MOD_mock_broker["src/broker/mock_broker.py"]:::module
+    MOD_models["src/models.py"]:::module
+    MOD_normalization["src/normalization.py"]:::module
+    MOD_pnl["src/pnl.py"]:::module
+    MOD_position["src/position.py"]:::module
+    MOD_price_overlay["src/pages/price_overlay.py"]:::module
+    MOD_pricing["src/pricing.py"]:::module
+    MOD_protocol["src/broker/protocol.py"]:::module
+    MOD_scanner["src/pages/scanner.py"]:::module
+    MOD_scanner_engine["src/scanner_engine.py"]:::module
+    MOD_sidebar["src/pages/sidebar.py"]:::module
+    TEST_arch_sync["tests/test_architecture_sync.py"]:::function
+    TEST_consistency["tests/test_worst_case_consistency.py"]:::function
+    TEST_dash_callbacks["tests/test_dash_callbacks.py"]:::function
+    TEST_data_collection["tests/test_data_collection.py"]:::function
+    TEST_data_loader["tests/test_data_loader.py"]:::function
+    TEST_integration["tests/test_integration.py"]:::function
+    TEST_lockstep["tests/test_worst_case_lockstep.py"]:::function
+    TEST_normalization["tests/test_normalization.py"]:::function
+    TEST_pnl["tests/test_pnl_calculations.py"]:::function
+    TEST_position["tests/test_position.py"]:::function
+    TEST_pricing["tests/test_pricing.py"]:::function
+    TEST_scanner_engine["tests/test_scanner_engine.py"]:::function
 
     %% External libraries
     LIB_asyncio["asyncio"]:::external
+    LIB_dash["dash"]:::external
     LIB_ibAsync["ib_async / ib_insync"]:::external
     LIB_numpy["numpy"]:::external
     LIB_pandas["pandas"]:::external
+    LIB_plotly["plotly"]:::external
 
     %% Module → Module imports
     MOD_collect -->|"imports"| MOD_ibkrClient
+    MOD_data_loader -->|"imports"| MOD_config
+    MOD_divergence -->|"imports"| MOD_components
+    MOD_divergence -->|"imports"| MOD_config
+    MOD_divergence -->|"imports"| MOD_data_loader
+    MOD_divergence -->|"imports"| MOD_normalization
+    MOD_historical -->|"imports"| MOD_components
+    MOD_historical -->|"imports"| MOD_data_loader
+    MOD_historical -->|"imports"| MOD_pnl
+    MOD_historical -->|"imports"| MOD_position
+    MOD_historical -->|"imports"| MOD_pricing
+    MOD_live_trading -->|"imports"| MOD_components
+    MOD_live_trading -->|"imports"| MOD_config
+    MOD_live_trading -->|"imports"| MOD_ibkrClient
+    MOD_normalization -->|"imports"| MOD_config
+    MOD_pnl -->|"imports"| MOD_config
+    MOD_position -->|"imports"| MOD_config
+    MOD_position -->|"imports"| MOD_models
+    MOD_price_overlay -->|"imports"| MOD_components
+    MOD_price_overlay -->|"imports"| MOD_config
+    MOD_price_overlay -->|"imports"| MOD_data_loader
+    MOD_price_overlay -->|"imports"| MOD_normalization
+    MOD_price_overlay -->|"imports"| MOD_pnl
+    MOD_price_overlay -->|"imports"| MOD_pricing
+    MOD_pricing -->|"imports"| MOD_config
+    MOD_scanner -->|"imports"| MOD_components
+    MOD_scanner -->|"imports"| MOD_config
+    MOD_scanner -->|"imports"| MOD_data_loader
+    MOD_scanner -->|"imports"| MOD_scanner_engine
+    MOD_scanner_engine -->|"imports"| MOD_config
+    MOD_scanner_engine -->|"imports"| MOD_models
+    MOD_scanner_engine -->|"imports"| MOD_pnl
+    MOD_sidebar -->|"imports"| MOD_config
+    MOD_sidebar -->|"imports"| MOD_data_loader
 
     %% Module → Library imports
+    MOD_app --> LIB_dash
     MOD_collect --> LIB_asyncio
     MOD_collect --> LIB_ibAsync
     MOD_collect --> LIB_pandas
+    MOD_components --> LIB_dash
+    MOD_data_loader --> LIB_pandas
+    MOD_divergence --> LIB_dash
+    MOD_divergence --> LIB_plotly
+    MOD_historical --> LIB_dash
     MOD_ibkrClient --> LIB_asyncio
     MOD_ibkrClient --> LIB_ibAsync
+    MOD_live_trading --> LIB_dash
+    MOD_live_trading --> LIB_numpy
+    MOD_live_trading --> LIB_plotly
+    MOD_normalization --> LIB_pandas
+    MOD_price_overlay --> LIB_dash
+    MOD_price_overlay --> LIB_plotly
+    MOD_scanner --> LIB_dash
+    MOD_scanner_engine --> LIB_pandas
+    MOD_sidebar --> LIB_dash
 
     %% Test → Module dependencies (dashed)
     TEST_consistency -.->|"imports"| LIB_numpy
     TEST_consistency -.->|"imports"| LIB_pandas
     TEST_consistency -.->|"imports"| MOD_pnl
     TEST_consistency -.->|"imports"| MOD_pricing
+    TEST_dash_callbacks -.->|"imports"| LIB_dash
+    TEST_dash_callbacks -.->|"imports"| MOD_components
+    TEST_dash_callbacks -.->|"imports"| MOD_config
+    TEST_dash_callbacks -.->|"imports"| MOD_divergence
+    TEST_dash_callbacks -.->|"imports"| MOD_historical
+    TEST_dash_callbacks -.->|"imports"| MOD_live_trading
+    TEST_dash_callbacks -.->|"imports"| MOD_price_overlay
+    TEST_dash_callbacks -.->|"imports"| MOD_scanner
+    TEST_dash_callbacks -.->|"imports"| MOD_sidebar
+    TEST_data_loader -.->|"imports"| LIB_pandas
+    TEST_data_loader -.->|"imports"| MOD_data_loader
+    TEST_integration -.->|"imports"| LIB_dash
+    TEST_integration -.->|"imports"| MOD_config
+    TEST_integration -.->|"imports"| MOD_data_loader
+    TEST_integration -.->|"imports"| MOD_models
+    TEST_integration -.->|"imports"| MOD_pnl
+    TEST_integration -.->|"imports"| MOD_position
+    TEST_integration -.->|"imports"| MOD_pricing
     TEST_lockstep -.->|"imports"| LIB_numpy
     TEST_lockstep -.->|"imports"| MOD_pnl
+    TEST_normalization -.->|"imports"| LIB_pandas
+    TEST_normalization -.->|"imports"| MOD_config
+    TEST_normalization -.->|"imports"| MOD_normalization
     TEST_pnl -.->|"imports"| MOD_pnl
+    TEST_position -.->|"imports"| MOD_models
+    TEST_position -.->|"imports"| MOD_position
+    TEST_pricing -.->|"imports"| LIB_pandas
+    TEST_pricing -.->|"imports"| MOD_config
+    TEST_pricing -.->|"imports"| MOD_pricing
+    TEST_scanner_engine -.->|"imports"| LIB_numpy
+    TEST_scanner_engine -.->|"imports"| LIB_pandas
+    TEST_scanner_engine -.->|"imports"| MOD_models
+    TEST_scanner_engine -.->|"imports"| MOD_scanner_engine
 
     %% Style definitions
     classDef external  fill:#f9d0d0,stroke:#c0392b,color:#333

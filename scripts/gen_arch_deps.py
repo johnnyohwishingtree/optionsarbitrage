@@ -16,10 +16,25 @@ ROOT = Path(__file__).resolve().parent.parent
 # Files to scan and their node IDs
 MODULE_MAP = {
     "collect_market_data.py": "MOD_collect",
-    "strategy_calculator_simple.py": "MOD_strategy",
+    "app.py": "MOD_app",
     "src/broker/ibkr_client.py": "MOD_ibkrClient",
+    "src/broker/protocol.py": "MOD_protocol",
+    "src/broker/mock_broker.py": "MOD_mock_broker",
     "src/pnl.py": "MOD_pnl",
     "src/pricing.py": "MOD_pricing",
+    "src/config.py": "MOD_config",
+    "src/models.py": "MOD_models",
+    "src/data_loader.py": "MOD_data_loader",
+    "src/position.py": "MOD_position",
+    "src/scanner_engine.py": "MOD_scanner_engine",
+    "src/normalization.py": "MOD_normalization",
+    "src/pages/components.py": "MOD_components",
+    "src/pages/sidebar.py": "MOD_sidebar",
+    "src/pages/historical.py": "MOD_historical",
+    "src/pages/live_trading.py": "MOD_live_trading",
+    "src/pages/price_overlay.py": "MOD_price_overlay",
+    "src/pages/divergence.py": "MOD_divergence",
+    "src/pages/scanner.py": "MOD_scanner",
 }
 
 # Test files
@@ -27,6 +42,15 @@ TEST_MAP = {
     "tests/test_pnl_calculations.py": "TEST_pnl",
     "tests/test_worst_case_consistency.py": "TEST_consistency",
     "tests/test_worst_case_lockstep.py": "TEST_lockstep",
+    "tests/test_architecture_sync.py": "TEST_arch_sync",
+    "tests/test_dash_callbacks.py": "TEST_dash_callbacks",
+    "tests/test_data_collection.py": "TEST_data_collection",
+    "tests/test_data_loader.py": "TEST_data_loader",
+    "tests/test_integration.py": "TEST_integration",
+    "tests/test_normalization.py": "TEST_normalization",
+    "tests/test_position.py": "TEST_position",
+    "tests/test_pricing.py": "TEST_pricing",
+    "tests/test_scanner_engine.py": "TEST_scanner_engine",
 }
 
 # External libraries we care about (skip stdlib)
@@ -35,11 +59,9 @@ KNOWN_LIBS = {
     "ib_async": "LIB_ibAsync",
     "pandas": "LIB_pandas",
     "numpy": "LIB_numpy",
-    "streamlit": "LIB_streamlit",
+    "dash": "LIB_dash",
     "plotly": "LIB_plotly",
     "asyncio": "LIB_asyncio",
-    "flask": "LIB_flask",
-    "sqlalchemy": "LIB_sqlalchemy",
 }
 
 # Labels for library nodes
@@ -47,20 +69,32 @@ LIB_LABELS = {
     "LIB_ibAsync": "ib_async / ib_insync",
     "LIB_pandas": "pandas",
     "LIB_numpy": "numpy",
-    "LIB_streamlit": "streamlit",
+    "LIB_dash": "dash",
     "LIB_plotly": "plotly",
     "LIB_asyncio": "asyncio",
-    "LIB_flask": "flask",
-    "LIB_sqlalchemy": "sqlalchemy",
 }
 
 # Local import patterns that map to our modules
 LOCAL_IMPORT_MAP = {
     "src.broker.ibkr_client": "MOD_ibkrClient",
+    "src.broker.protocol": "MOD_protocol",
+    "src.broker.mock_broker": "MOD_mock_broker",
     "src.broker": "MOD_ibkrClient",
-    "ibkr_client": "MOD_ibkrClient",
     "src.pnl": "MOD_pnl",
     "src.pricing": "MOD_pricing",
+    "src.config": "MOD_config",
+    "src.models": "MOD_models",
+    "src.data_loader": "MOD_data_loader",
+    "src.position": "MOD_position",
+    "src.scanner_engine": "MOD_scanner_engine",
+    "src.normalization": "MOD_normalization",
+    "src.pages.components": "MOD_components",
+    "src.pages.sidebar": "MOD_sidebar",
+    "src.pages.historical": "MOD_historical",
+    "src.pages.live_trading": "MOD_live_trading",
+    "src.pages.price_overlay": "MOD_price_overlay",
+    "src.pages.divergence": "MOD_divergence",
+    "src.pages.scanner": "MOD_scanner",
 }
 
 
@@ -83,19 +117,6 @@ def extract_imports(filepath: Path) -> set[str]:
                 imports.add(node.module.split(".")[0])
                 imports.add(node.module)  # full dotted name
     return imports
-
-
-def check_imports_strategy(filepath: Path) -> set[str]:
-    """Check if a test file imports from strategy_calculator_simple via exec or importlib."""
-    try:
-        source = filepath.read_text(encoding="utf-8")
-    except (UnicodeDecodeError, FileNotFoundError):
-        return set()
-
-    # Some test files use exec() to import from strategy_calculator_simple
-    if "strategy_calculator_simple" in source:
-        return {"MOD_strategy"}
-    return set()
 
 
 def resolve_import(raw_import: str, source_file: str) -> str | None:
@@ -145,7 +166,6 @@ def build_graph() -> str:
 
         used_modules.add(node_id)
         raw_imports = extract_imports(filepath)
-        extra_deps = check_imports_strategy(filepath)
 
         targets = set()
         for raw in raw_imports:
@@ -153,18 +173,12 @@ def build_graph() -> str:
             if target and target != node_id:
                 targets.add(target)
 
-        # Add any exec-based imports
-        targets.update(extra_deps)
-
         for target in targets:
             edges.append((node_id, target, True))
             if target.startswith("LIB_"):
                 used_libs.add(target)
             else:
                 used_modules.add(target)
-
-    # Also scan for any new .py files not in our maps
-    new_modules = discover_new_modules()
 
     # Deduplicate edges
     seen = set()
@@ -175,35 +189,13 @@ def build_graph() -> str:
             seen.add(key)
             unique_edges.append((src, tgt, is_test))
 
-    return render_mermaid(used_modules, used_libs, unique_edges, new_modules)
-
-
-def discover_new_modules() -> list[tuple[str, str]]:
-    """Find .py files not in MODULE_MAP or TEST_MAP."""
-    known_files = set(MODULE_MAP.keys()) | set(TEST_MAP.keys())
-    new_modules = []
-
-    for py_file in ROOT.rglob("*.py"):
-        rel = str(py_file.relative_to(ROOT))
-        if rel in known_files:
-            continue
-        # Skip __pycache__, venv, etc.
-        parts = py_file.relative_to(ROOT).parts
-        if any(p.startswith(".") or p in ("venv", "env", "__pycache__", "build", "dist", "scripts", "tests") for p in parts):
-            continue
-        # Skip __init__.py
-        if py_file.name == "__init__.py":
-            continue
-        new_modules.append((rel, py_file.stem))
-
-    return new_modules
+    return render_mermaid(used_modules, used_libs, unique_edges)
 
 
 def render_mermaid(
     used_modules: set[str],
     used_libs: set[str],
     edges: list[tuple[str, str, bool]],
-    new_modules: list[tuple[str, str]],
 ) -> str:
     today = date.today().isoformat()
     lines = [
@@ -216,32 +208,14 @@ def render_mermaid(
 
     # Module nodes
     lines.append("    %% Modules")
-    module_labels = {
-        "MOD_collect": "collect_market_data.py",
-        "MOD_strategy": "strategy_calculator_simple.py",
-        "MOD_ibkrClient": "src/broker/ibkr_client.py",
-        "MOD_pnl": "src/pnl.py",
-        "MOD_pricing": "src/pricing.py",
-    }
+    module_labels = {v: k for k, v in MODULE_MAP.items()}
+    test_labels = {v: k for k, v in TEST_MAP.items()}
+
     for node_id in sorted(used_modules):
         if node_id in module_labels:
             lines.append(f'    {node_id}["{module_labels[node_id]}"]:::module')
-        elif node_id.startswith("TEST_"):
-            test_labels = {
-                "TEST_pnl": "tests/test_pnl_calculations.py",
-                "TEST_consistency": "tests/test_worst_case_consistency.py",
-                "TEST_lockstep": "tests/test_worst_case_lockstep.py",
-            }
-            if node_id in test_labels:
-                lines.append(f'    {node_id}["{test_labels[node_id]}"]:::function')
-
-    # New module nodes (discovered dynamically)
-    if new_modules:
-        lines.append("")
-        lines.append("    %% Discovered modules (not in standard map)")
-        for relpath, stem in new_modules:
-            node_id = f"MOD_{stem}"
-            lines.append(f'    {node_id}["{relpath}"]:::module')
+        elif node_id in test_labels:
+            lines.append(f'    {node_id}["{test_labels[node_id]}"]:::function')
 
     # Library nodes
     lines.append("")

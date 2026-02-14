@@ -41,9 +41,17 @@ ENV/
 .DS_Store
 Thumbs.db
 
-# Exports (optional - you might want to commit these)
-# Uncomment if you want to keep exports private:
-# data/exports/*.csv
+# Legacy/ad-hoc data files (only keep dated pipeline output)
+data/backtest_results*.csv
+data/daily_snapshots*.csv
+data/entry_exit_analysis*.csv
+data/full_chain*.csv
+data/full_option_chain*.csv
+data/historical_intraday*.csv
+data/hold_to_expiration*.csv
+data/optimized_backtest*.csv
+data/todays_*.csv
+data/underlying_prices.csv
 
 # Test data
 test_data/

@@ -9,10 +9,11 @@ Every node in a diagram maps to a specific code location.
 | Prefix | Meaning         | Example                                | Code Location                                                      |
 |--------|-----------------|----------------------------------------|--------------------------------------------------------------------|
 | `MOD_` | Python module   | `MOD_collect`                          | `collect_market_data.py`                                           |
-| `MOD_` | Python module   | `MOD_strategy`                         | `strategy_calculator_simple.py`                                    |
+| `MOD_` | Python module   | `MOD_app`                              | `app.py`                                                           |
 | `MOD_` | Python module   | `MOD_ibkrClient`                       | `src/broker/ibkr_client.py`                                        |
 | `MOD_` | Python module   | `MOD_pnl`                              | `src/pnl.py`                                                       |
 | `MOD_` | Python module   | `MOD_pricing`                          | `src/pricing.py`                                                   |
+| `MOD_` | Python module   | `MOD_components`                       | `src/pages/components.py`                                          |
 | `CLS_` | Class           | `CLS_IBKRClient`                       | `src/broker/ibkr_client.py::IBKRClient`                            |
 | `FN_`  | Function        | `FN_collectDailyData`                  | `collect_market_data.py::collect_daily_data()`                     |
 | `FN_`  | Function        | `FN_getLastTimestamp`                  | `collect_market_data.py::get_last_timestamp()`                     |
@@ -23,16 +24,16 @@ Every node in a diagram maps to a specific code location.
 | `FN_`  | Function        | `FN_getPriceWithLiquidity`             | `src/pricing.py::get_option_price_with_liquidity()`               |
 | `FN_`  | Function        | `FN_getPriceFromDb`                    | `src/pricing.py::get_option_price_from_db()`                      |
 | `FN_`  | Function        | `FN_findNearestRow`                    | `src/pricing.py::_find_nearest_row()`                             |
-| `TAB_` | Streamlit tab   | `TAB_historical`                       | Tab 1 in `strategy_calculator_simple.py`                           |
-| `TAB_` | Streamlit tab   | `TAB_liveTrade`                        | Tab 2 in `strategy_calculator_simple.py`                           |
-| `TAB_` | Streamlit tab   | `TAB_priceOverlay`                     | Tab 3 in `strategy_calculator_simple.py`                           |
-| `TAB_` | Streamlit tab   | `TAB_divergence`                       | Tab 4 in `strategy_calculator_simple.py`                           |
-| `TAB_` | Streamlit tab   | `TAB_scanner`                          | Tab 5 in `strategy_calculator_simple.py`                           |
+| `TAB_` | Dash tab        | `TAB_historical`                       | Tab 1 in `src/pages/historical.py`                                 |
+| `TAB_` | Dash tab        | `TAB_liveTrade`                        | Tab 2 in `src/pages/live_trading.py`                               |
+| `TAB_` | Dash tab        | `TAB_priceOverlay`                     | Tab 3 in `src/pages/price_overlay.py`                              |
+| `TAB_` | Dash tab        | `TAB_divergence`                       | Tab 4 in `src/pages/divergence.py`                                 |
+| `TAB_` | Dash tab        | `TAB_scanner`                          | Tab 5 in `src/pages/scanner.py`                                    |
 | `DATA_`| Data file       | `DATA_underlying`                      | `data/underlying_prices_{date}.csv`                                |
 | `DATA_`| Data file       | `DATA_optTrades`                       | `data/options_data_{date}.csv`                                     |
 | `DATA_`| Data file       | `DATA_optBidask`                       | `data/options_bidask_{date}.csv`                                   |
 | `EXT_` | External system | `EXT_ibGateway`                        | IB Gateway at `127.0.0.1:4002`                                     |
-| `EXT_` | External system | `EXT_browser`                          | User's web browser (Streamlit UI)                                  |
+| `EXT_` | External system | `EXT_browser`                          | User's web browser (Dash UI)                                       |
 
 ## Style Classes
 
@@ -50,7 +51,7 @@ classDef tab       fill:#e0d0f9,stroke:#8e44ad,color:#333
 | `module`   | Blue   | Python modules                 |
 | `function` | Green  | Key functions                  |
 | `data`     | Orange | CSV files, data stores         |
-| `tab`      | Purple | Streamlit UI tabs              |
+| `tab`      | Purple | Dash UI tabs                   |
 
 ## Edge Semantics
 

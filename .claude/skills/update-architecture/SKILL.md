@@ -20,7 +20,7 @@ This is a market-neutral 0DTE options arbitrage system. Diagrams document:
 
    **Code structure diagrams:**
    - `collect_market_data.py` -> `system-overview.mmd`, `flow-data-collection.mmd`
-   - `strategy_calculator_simple.py` -> `system-overview.mmd`, `flow-strategy-analysis.mmd`, `flow-strike-scanner.mmd`, `flow-live-trading.mmd`, `flow-position-construction.mmd`
+   - `app.py` / `src/pages/*.py` -> `system-overview.mmd`, `flow-strategy-analysis.mmd`, `flow-strike-scanner.mmd`, `flow-live-trading.mmd`, `flow-position-construction.mmd`
    - `src/broker/ibkr_client.py` -> `system-overview.mmd`, `flow-live-trading.mmd`
    - `data/*.csv` schema changes -> `data-model.mmd`
    - New Python files -> `module-dependencies.mmd` (auto-generated), `system-overview.mmd`

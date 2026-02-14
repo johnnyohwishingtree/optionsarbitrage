@@ -10,24 +10,49 @@ Audit and reorganize the project file structure so it's clean, logical, and matc
 The canonical structure (from CLAUDE.md and system-overview.mmd):
 
 ```
+app.py                            # Dash entry point (tab navigation, shared stores)
 collect_market_data.py            # Data collection CLI
-strategy_calculator_simple.py     # Streamlit dashboard (5 tabs)
 src/
   __init__.py
+  config.py                       # All business constants centralized
+  models.py                       # Dataclasses: Position, ScanResult, PriceQuote, etc.
+  data_loader.py                  # CSV loading, date listing, symbol filtering
+  position.py                     # Position construction, credit calc, margin
+  scanner_engine.py               # Strike pair matching, spread calc, ranking
+  normalization.py                # Price normalization, divergence calculation
   pnl.py                          # P&L calculations (pure functions)
   pricing.py                      # Price discovery (pure functions)
   broker/
     __init__.py
-    ibkr_client.py                # IB API wrapper
+    protocol.py                   # BrokerProtocol (Python Protocol class)
+    ibkr_client.py                # IB Gateway implementation
+    mock_broker.py                # Mock for testing
+  pages/
+    __init__.py
+    components.py                 # Shared UI components and style constants
+    sidebar.py                    # Shared config panel (date, pair, strikes, direction)
+    historical.py                 # Tab 1: position, P&L, scenario analysis
+    live_trading.py               # Tab 2: IB positions, settlement P&L
+    price_overlay.py              # Tab 3: normalized option price comparison
+    divergence.py                 # Tab 4: underlying price divergence
+    scanner.py                    # Tab 5: strike pair scanner
 tests/
+  test_architecture_sync.py
+  test_dash_callbacks.py
+  test_data_collection.py
+  test_data_loader.py
+  test_integration.py
+  test_normalization.py
   test_pnl_calculations.py
+  test_position.py
+  test_pricing.py
+  test_scanner_engine.py
   test_worst_case_consistency.py
   test_worst_case_lockstep.py
-  test_architecture_sync.py
-data/                             # CSV files (gitignored except structure)
-  underlying_prices_*.csv
-  options_data_*.csv
-  options_bidask_*.csv
+data/                             # CSV files per trading date
+  underlying_prices_{date}.csv
+  options_data_{date}.csv
+  options_bidask_{date}.csv
 docs/
   architecture/                   # Mermaid diagrams + viewer
 scripts/

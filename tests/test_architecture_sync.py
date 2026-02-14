@@ -19,7 +19,6 @@ ARCH_DIR = ROOT / "docs" / "architecture"
 
 MODULE_NODES = {
     "MOD_collect": "collect_market_data.py",
-    "MOD_strategy": "strategy_calculator_simple.py.bak",
     "MOD_app": "app.py",
     "MOD_ibkrClient": "src/broker/ibkr_client.py",
     "MOD_pnl": "src/pnl.py",
@@ -38,6 +37,7 @@ MODULE_NODES = {
     "MOD_price_overlay": "src/pages/price_overlay.py",
     "MOD_divergence": "src/pages/divergence.py",
     "MOD_scanner": "src/pages/scanner.py",
+    "MOD_components": "src/pages/components.py",
 }
 
 CLASS_NODES = {

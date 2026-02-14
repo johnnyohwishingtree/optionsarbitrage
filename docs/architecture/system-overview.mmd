@@ -1,10 +1,10 @@
 %% System Overview — Top-level architecture
-%% Updated: 2026-02-12
+%% Updated: 2026-02-14
 
 graph TD
     %% External systems
     EXT_ibGateway["IB Gateway\n127.0.0.1:4002"]:::external
-    EXT_browser["Browser\n(Streamlit UI)"]:::external
+    EXT_browser["Browser\n(Dash UI)"]:::external
 
     %% Data collection module
     MOD_collect["collect_market_data.py\nData Collection CLI"]:::module
@@ -16,22 +16,28 @@ graph TD
     %% Core logic modules
     MOD_pnl["src/pnl.py\nP&L Calculations"]:::module
     MOD_pricing["src/pricing.py\nPrice Discovery"]:::module
+    MOD_data_loader["src/data_loader.py\nCSV Loading"]:::module
+    MOD_normalization["src/normalization.py\nPrice Normalization"]:::module
+    MOD_position["src/position.py\nPosition Construction"]:::module
+    MOD_scanner_engine["src/scanner_engine.py\nScanner Logic"]:::module
 
-    %% Strategy calculator (Streamlit app)
-    MOD_strategy["strategy_calculator_simple.py\nStreamlit Dashboard"]:::module
+    %% Dash app (entry point + tab routing)
+    MOD_app["app.py\nDash Dashboard"]:::module
+    MOD_sidebar["src/pages/sidebar.py\nShared Config Panel"]:::module
+    MOD_components["src/pages/components.py\nShared UI Components"]:::module
 
     %% Data stores
     DATA_underlying["underlying_prices_{date}.csv"]:::data
     DATA_optTrades["options_data_{date}.csv"]:::data
     DATA_optBidask["options_bidask_{date}.csv"]:::data
 
-    %% Streamlit tabs subgraph
-    subgraph StreamlitTabs["Streamlit Tabs"]
-        TAB_historical["Tab 1: Historical Analysis"]:::tab
-        TAB_liveTrade["Tab 2: Live Paper Trading"]:::tab
-        TAB_priceOverlay["Tab 3: Price Overlay"]:::tab
-        TAB_divergence["Tab 4: Underlying Divergence"]:::tab
-        TAB_scanner["Tab 5: Strike Scanner"]:::tab
+    %% Dash tabs subgraph
+    subgraph DashTabs["Dash Tabs"]
+        TAB_historical["Tab 1: Historical Analysis\nsrc/pages/historical.py"]:::tab
+        TAB_liveTrade["Tab 2: Live Paper Trading\nsrc/pages/live_trading.py"]:::tab
+        TAB_priceOverlay["Tab 3: Price Overlay\nsrc/pages/price_overlay.py"]:::tab
+        TAB_divergence["Tab 4: Underlying Divergence\nsrc/pages/divergence.py"]:::tab
+        TAB_scanner["Tab 5: Strike Scanner\nsrc/pages/scanner.py"]:::tab
     end
 
     %% Edges: Data collection
@@ -42,26 +48,32 @@ graph TD
     MOD_collect ==>|"writes CSVs"| DATA_optTrades
     MOD_collect ==>|"writes CSVs"| DATA_optBidask
 
-    %% Edges: Strategy reads data
-    DATA_underlying ==>|"loads"| MOD_strategy
-    DATA_optTrades ==>|"loads"| MOD_strategy
-    DATA_optBidask ==>|"loads"| MOD_strategy
+    %% Edges: Data loader reads CSVs
+    DATA_underlying ==>|"loads"| MOD_data_loader
+    DATA_optTrades ==>|"loads"| MOD_data_loader
+    DATA_optBidask ==>|"loads"| MOD_data_loader
 
-    %% Edges: Strategy uses core modules
-    MOD_strategy --> MOD_pnl
-    MOD_strategy --> MOD_pricing
+    %% Edges: Tabs use core modules
+    DashTabs --> MOD_data_loader
+    DashTabs --> MOD_pnl
+    DashTabs --> MOD_pricing
+    DashTabs --> MOD_normalization
+    DashTabs --> MOD_position
+    DashTabs --> MOD_components
+    TAB_scanner --> MOD_scanner_engine
 
-    %% Edges: Strategy hosts tabs
-    MOD_strategy --> StreamlitTabs
-    EXT_browser -->|"HTTP"| MOD_strategy
+    %% Edges: App hosts tabs + sidebar
+    MOD_app --> DashTabs
+    MOD_app --> MOD_sidebar
+    EXT_browser -->|"HTTP :8050"| MOD_app
 
     %% Edges: Live trading tab uses IB
     TAB_liveTrade -->|"positions, orders"| CLS_IBKRClient
     CLS_IBKRClient -->|"API calls"| EXT_ibGateway
 
-    %% Edges: Scanner feeds into historical
-    TAB_scanner -->|"apply strikes/time"| TAB_historical
-    TAB_priceOverlay -->|"apply best opportunity"| TAB_historical
+    %% Edges: Scanner feeds into historical via dcc.Store
+    TAB_scanner -->|"selected-scan-result"| TAB_historical
+    TAB_priceOverlay -->|"config-store"| TAB_historical
 
     %% Style definitions
     classDef external  fill:#f9d0d0,stroke:#c0392b,color:#333

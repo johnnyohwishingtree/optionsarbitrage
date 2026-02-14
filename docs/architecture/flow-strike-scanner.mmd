@@ -22,7 +22,7 @@ flowchart TD
 
     RESULTS["Display results table\nSYM1 strike / SYM2 strike\nMax spread / Credit / Best-worst P&L\nEntry time / Apply button"]:::tab
 
-    APPLY["Apply button\nSets session_state:\nselected_spy_strike\nselected_spx_strike\nselected_entry_time\ndirection\nSwitches to TAB_historical"]:::tab
+    APPLY["Apply button\nUpdates selected-scan-result dcc.Store:\nsym1_strike, sym2_strike\nentry_time, direction\nSwitches to TAB_historical"]:::tab
 
     CONFIG --> MATCH
     MATCH --> FILTER_LIQ
@@ -37,7 +37,7 @@ flowchart TD
     RANK_PROFIT --> RESULTS
     RANK_RR --> RESULTS
     RESULTS -->|"user clicks Apply"| APPLY
-    APPLY -->|"session_state"| TAB_historical["Tab 1: Historical Analysis"]:::tab
+    APPLY -->|"selected-scan-result"| TAB_historical["Tab 1: Historical Analysis"]:::tab
 
     %% Style definitions
     classDef external  fill:#f9d0d0,stroke:#c0392b,color:#333
