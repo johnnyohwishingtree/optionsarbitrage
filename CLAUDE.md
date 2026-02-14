@@ -16,21 +16,21 @@ This is a **market-neutral 0DTE options arbitrage** between correlated index/ETF
 
 ## Business Constants
 
-These values are hardcoded in the codebase and drive the strategy logic:
+All business constants are centralized in `src/config.py`:
 
-| Constant | Value | Location |
-|----------|-------|----------|
-| SPY:SPX quantity ratio | 10:1 | `strategy_calculator_simple.py:150` |
-| SPY:XSP / XSP:SPX ratio | 1:1 | `strategy_calculator_simple.py:150` |
-| SPX strike step | $5 | `strategy_calculator_simple.py:151` |
-| SPY/XSP strike step | $1 | `strategy_calculator_simple.py:151` |
-| Moneyness match warning | >0.05% diff | `strategy_calculator_simple.py:386` |
-| Scanner pair tolerance | <0.5% | `strategy_calculator_simple.py:2757` |
-| Wide spread threshold | >20% | `src/pricing.py:161` |
-| Margin estimate | 20% of short notional - credit | `strategy_calculator_simple.py:794` |
-| Grid search price range | ±5% (50 points) | `src/pnl.py:58-61` |
-| Grid search basis drift | ±0.10% (3 levels) | `src/pnl.py:64` |
-| Default min volume (scanner) | 10 | `strategy_calculator_simple.py:2741` |
+| Constant | Value | Config Name |
+|----------|-------|-------------|
+| SPY:SPX quantity ratio | 10:1 | `QTY_RATIO_SPX` |
+| SPY:XSP / XSP:SPX ratio | 1:1 | `QTY_RATIO_DEFAULT` |
+| SPX strike step | $5 | `STRIKE_STEP_SPX` |
+| SPY/XSP strike step | $1 | `STRIKE_STEP_DEFAULT` |
+| Moneyness match warning | >0.05% diff | `MONEYNESS_WARN_THRESHOLD` |
+| Scanner pair tolerance | <0.5% | `SCANNER_PAIR_TOLERANCE` |
+| Wide spread threshold | >20% | `WIDE_SPREAD_THRESHOLD` |
+| Margin estimate | 20% of short notional - credit | `MARGIN_RATE` |
+| Grid search price range | ±5% (50 points) | `GRID_PRICE_POINTS`, `GRID_PRICE_RANGE_PCT` |
+| Grid search basis drift | ±0.10% (3 levels) | `GRID_BASIS_DRIFT_PCT` |
+| Default min volume (scanner) | 10 | `DEFAULT_MIN_VOLUME` |
 
 ## Architecture Diagrams
 
@@ -49,7 +49,7 @@ All diagrams live in `docs/architecture/`. See `docs/architecture/README.md` for
 
 | Diagram | What it shows |
 |---------|---------------|
-| `system-overview.mmd` | Modules, data stores, IB Gateway, Streamlit tabs |
+| `system-overview.mmd` | Modules, data stores, IB Gateway, Dash tabs |
 | `module-dependencies.mmd` | Import graph between files and libraries (auto-generated) |
 | `data-model.mmd` | CSV schemas (underlying, options trades, bid/ask) |
 
@@ -66,12 +66,31 @@ All diagrams live in `docs/architecture/`. See `docs/architecture/README.md` for
 ## Project Structure
 
 ```
+app.py                          # Dash entry point (tab navigation, shared stores)
 collect_market_data.py          # Data collection CLI (IB Gateway -> CSVs)
-strategy_calculator_simple.py   # Streamlit dashboard (5 tabs)
-src/pnl.py                      # P&L calculations (pure functions)
-src/pricing.py                  # Price discovery with liquidity (pure functions)
-src/broker/ibkr_client.py       # IB API wrapper (IBKRClient class)
-tests/                          # P&L, worst-case consistency, lockstep, architecture sync
+
+src/
+  config.py                     # All business constants centralized
+  models.py                     # Dataclasses: Position, ScanResult, PriceQuote, etc.
+  data_loader.py                # CSV loading, date listing, symbol filtering
+  position.py                   # Position construction, credit calc, margin
+  scanner_engine.py             # Strike pair matching, spread calc, ranking
+  normalization.py              # Price normalization, divergence calculation
+  pnl.py                        # P&L calculations (pure functions)
+  pricing.py                    # Price discovery with liquidity (pure functions)
+  broker/
+    protocol.py                 # BrokerProtocol (Python Protocol class)
+    ibkr_client.py              # IB Gateway implementation
+    mock_broker.py              # Mock for testing
+  pages/
+    sidebar.py                  # Shared config panel (date, pair, strikes, direction)
+    historical.py               # Tab 1: position, P&L, scenario analysis
+    live_trading.py             # Tab 2: IB positions, settlement P&L, risk chart
+    price_overlay.py            # Tab 3: normalized option price comparison
+    divergence.py               # Tab 4: underlying price divergence
+    scanner.py                  # Tab 5: strike pair scanner, 3 ranking views
+
+tests/                          # P&L, worst-case, architecture sync, position, scanner
 data/                           # CSV files per trading date
 docs/architecture/              # Mermaid diagrams + viewer
 scripts/gen_arch_deps.py        # Auto-generates module-dependencies.mmd
@@ -92,10 +111,13 @@ scripts/gen_arch_deps.py        # Auto-generates module-dependencies.mmd
 
 When referencing code in plans, use architecture node IDs from the diagrams:
 - `MOD_collect` = `collect_market_data.py`
+- `MOD_app` = `app.py`
 - `MOD_pnl` = `src/pnl.py`
 - `MOD_pricing` = `src/pricing.py`
+- `MOD_config` = `src/config.py`
+- `MOD_scanner_engine` = `src/scanner_engine.py`
 - `FN_calcBestWorst` = `calculate_best_worst_case_with_basis_drift()`
-- `TAB_scanner` = Tab 5 in `strategy_calculator_simple.py`
+- `TAB_scanner` = Tab 5 in `src/pages/scanner.py`
 - See full prefix table in `docs/architecture/README.md`
 
 ## Run Commands
@@ -104,8 +126,9 @@ When referencing code in plans, use architecture node IDs from the diagrams:
 # Collect market data for a date
 python collect_market_data.py --date 20260207 --data-type both --symbols SPY SPX XSP
 
-# Run the Streamlit dashboard
-streamlit run strategy_calculator_simple.py
+# Run the Dash dashboard
+python app.py
+# Then open http://127.0.0.1:8050
 
 # Run tests
 python -m pytest tests/ -v
