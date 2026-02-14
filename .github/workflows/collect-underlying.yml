@@ -69,13 +69,7 @@ jobs:
               echo "Port 4002 is open. Waiting for authentication..."
               sleep 15
               docker logs ib-gateway 2>&1 | tail -5
-              python -c "
-          from ib_async import IB
-          ib = IB()
-          ib.connect('127.0.0.1', 4002, clientId=999)
-          print('IB Gateway API verified')
-          ib.disconnect()
-          " && exit 0
+              python -c "from ib_async import IB; ib = IB(); ib.connect('127.0.0.1', 4002, clientId=999); print('IB Gateway API verified'); ib.disconnect()" && exit 0
               echo "API test failed, retrying..."
             fi
             if [ $((i % 10)) -eq 0 ]; then
@@ -91,11 +85,9 @@ jobs:
       - name: Collect underlying prices
         run: |
           DATE=${{ steps.date.outputs.date }}
-          python -c "
+          python << PYEOF
           import sys, os, pandas as pd
-          from datetime import datetime
 
-          sys.path.insert(0, '.')
           try:
               import ib_async
               sys.modules['ib_insync'] = ib_async
@@ -141,7 +133,7 @@ jobs:
           out = f'data/underlying_prices_{DATE}.csv'
           pd.DataFrame(rows).to_csv(out, index=False)
           print(f'Saved {len(rows)} bars to {out}')
-          "
+          PYEOF
 
       - name: Verify and commit
         run: |

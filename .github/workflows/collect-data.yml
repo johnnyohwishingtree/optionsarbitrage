@@ -75,13 +75,7 @@ jobs:
               echo "=== IB Gateway logs (after port open + 15s wait) ==="
               docker logs ib-gateway 2>&1 | tail -10
               # Verify actual API connectivity with a real IB connection
-              python -c "
-from ib_async import IB
-ib = IB()
-ib.connect('127.0.0.1', 4002, clientId=999)
-print('IB Gateway API connection verified successfully')
-ib.disconnect()
-" && exit 0
+              python -c "from ib_async import IB; ib = IB(); ib.connect('127.0.0.1', 4002, clientId=999); print('IB Gateway API connection verified'); ib.disconnect()" && exit 0
               echo "WARNING: Port is open but API connection test failed. Retrying..."
             fi
             if [ $((i % 10)) -eq 0 ]; then
