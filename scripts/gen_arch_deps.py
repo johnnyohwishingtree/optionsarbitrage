@@ -18,8 +18,6 @@ MODULE_MAP = {
     "collect_market_data.py": "MOD_collect",
     "app.py": "MOD_app",
     "src/broker/ibkr_client.py": "MOD_ibkrClient",
-    "src/broker/protocol.py": "MOD_protocol",
-    "src/broker/mock_broker.py": "MOD_mock_broker",
     "src/pnl.py": "MOD_pnl",
     "src/pricing.py": "MOD_pricing",
     "src/config.py": "MOD_config",
@@ -77,8 +75,6 @@ LIB_LABELS = {
 # Local import patterns that map to our modules
 LOCAL_IMPORT_MAP = {
     "src.broker.ibkr_client": "MOD_ibkrClient",
-    "src.broker.protocol": "MOD_protocol",
-    "src.broker.mock_broker": "MOD_mock_broker",
     "src.broker": "MOD_ibkrClient",
     "src.pnl": "MOD_pnl",
     "src.pricing": "MOD_pricing",

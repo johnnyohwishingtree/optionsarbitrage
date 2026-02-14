@@ -79,9 +79,7 @@ src/
   pnl.py                        # P&L calculations (pure functions)
   pricing.py                    # Price discovery with liquidity (pure functions)
   broker/
-    protocol.py                 # BrokerProtocol (Python Protocol class)
     ibkr_client.py              # IB Gateway implementation
-    mock_broker.py              # Mock for testing
   pages/
     sidebar.py                  # Shared config panel (date, pair, strikes, direction)
     historical.py               # Tab 1: position, P&L, scenario analysis
