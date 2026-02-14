@@ -115,6 +115,8 @@ def collect_daily_data(date_str=None, strike_range_pct=0.03, force_full=False, d
     print(f'📊 COLLECTING MARKET DATA FOR {date_str}')
     print('='*70)
 
+    success = False  # Track whether we collected any data
+
     collect_trades = data_type in ('trades', 'both')
     collect_bidask = data_type in ('bidask', 'both')
 
@@ -146,7 +148,7 @@ def collect_daily_data(date_str=None, strike_range_pct=0.03, force_full=False, d
     client = IBKRClient(port=4002, client_id=600)
     if not client.connect():
         print('❌ Failed to connect to IB Gateway')
-        return
+        return False
 
     try:
         # Index-type symbols (use Index contract for underlying)
@@ -545,16 +547,27 @@ def collect_daily_data(date_str=None, strike_range_pct=0.03, force_full=False, d
             else:
                 print(f'\n   ℹ️  No new BID_ASK data to add')
 
-        print(f'\n✅ COLLECTION COMPLETE')
-        print(f'   Underlying file: {underlying_file}')
-        if collect_trades:
-            print(f'   TRADES file: {options_file}')
-        if collect_bidask:
-            print(f'   BID_ASK file: {bidask_file}')
+        # Determine if we collected any useful data
+        has_underlying = bool(underlying_data)
+        has_trades = bool(options_data) if collect_trades else True  # not requested = OK
+        has_bidask = bool(bidask_data) if collect_bidask else True   # not requested = OK
+
+        if has_underlying or has_trades or has_bidask:
+            success = True
+            print(f'\n✅ COLLECTION COMPLETE')
+            print(f'   Underlying file: {underlying_file}')
+            if collect_trades:
+                print(f'   TRADES file: {options_file}')
+            if collect_bidask:
+                print(f'   BID_ASK file: {bidask_file}')
+        else:
+            print(f'\n❌ COLLECTION FAILED — no data was collected for any data type')
 
     finally:
         client.disconnect()
         print('\n✅ Disconnected from IB Gateway')
+
+    return success
 
 
 def main():
@@ -631,13 +644,16 @@ Full Mode (--full flag):
     os.makedirs('data', exist_ok=True)
 
     # Collect data
-    collect_daily_data(
+    success = collect_daily_data(
         date_str=args.date,
         strike_range_pct=args.range,
         force_full=args.full,
         data_type=args.data_type,
         symbols=symbols_list
     )
+
+    if not success:
+        sys.exit(1)
 
 
 if __name__ == "__main__":

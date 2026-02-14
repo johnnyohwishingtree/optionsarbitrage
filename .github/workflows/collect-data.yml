@@ -12,6 +12,9 @@ on:
         required: false
         type: string
 
+permissions:
+  contents: write
+
 jobs:
   collect:
     runs-on: ubuntu-latest
@@ -20,6 +23,17 @@ jobs:
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
+
+      - name: Validate secrets
+        run: |
+          if [ -z "${{ secrets.IB_USERNAME }}" ]; then
+            echo "ERROR: IB_USERNAME secret is not configured in repo settings"
+            exit 1
+          fi
+          if [ -z "${{ secrets.IB_PASSWORD }}" ]; then
+            echo "ERROR: IB_PASSWORD secret is not configured in repo settings"
+            exit 1
+          fi
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -53,15 +67,25 @@ jobs:
 
       - name: Wait for IB Gateway API
         run: |
-          echo "Waiting for IB Gateway to log in and start API..."
+          echo "Waiting for IB Gateway to start..."
           for i in $(seq 1 90); do
             if nc -z localhost 4002 2>/dev/null; then
-              echo "IB Gateway API is ready on port 4002!"
-              sleep 5  # extra buffer for API to fully initialize
-              exit 0
+              echo "Port 4002 is open. Waiting for IB Gateway to authenticate..."
+              sleep 15
+              echo "=== IB Gateway logs (after port open + 15s wait) ==="
+              docker logs ib-gateway 2>&1 | tail -10
+              # Verify actual API connectivity with a real IB connection
+              python -c "
+from ib_async import IB
+ib = IB()
+ib.connect('127.0.0.1', 4002, clientId=999)
+print('IB Gateway API connection verified successfully')
+ib.disconnect()
+" && exit 0
+              echo "WARNING: Port is open but API connection test failed. Retrying..."
             fi
             if [ $((i % 10)) -eq 0 ]; then
-              echo "  Still waiting... ($i/90) - last few log lines:"
+              echo "  Still waiting... ($i/90)"
               docker logs ib-gateway 2>&1 | tail -3
             fi
             sleep 2
@@ -83,14 +107,20 @@ jobs:
         run: |
           DATE=${{ steps.date.outputs.date }}
           echo "=== Data files for $DATE ==="
+          FOUND=0
           for f in data/underlying_prices_${DATE}.csv data/options_data_${DATE}.csv data/options_bidask_${DATE}.csv; do
             if [ -f "$f" ]; then
               LINES=$(wc -l < "$f")
-              echo "✅ $f: $LINES lines"
+              echo "  $f: $LINES lines"
+              FOUND=$((FOUND + 1))
             else
-              echo "❌ Missing: $f"
+              echo "  Missing: $f"
             fi
           done
+          if [ $FOUND -eq 0 ]; then
+            echo "ERROR: No data files were created for ${DATE}"
+            exit 1
+          fi
 
       - name: Commit and push data
         run: |
@@ -99,16 +129,22 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
           FILES=$(ls data/*_${DATE}.csv 2>/dev/null || true)
           if [ -z "$FILES" ]; then
-            echo "No data files were created for ${DATE}"
-            exit 0
+            echo "ERROR: No data files were created for ${DATE}"
+            exit 1
           fi
           git add $FILES
           if git diff --cached --quiet; then
-            echo "No new data to commit"
+            echo "No new data to commit (files already up to date)"
           else
             git commit -m "data: add market data for ${DATE}"
             git push
           fi
+
+      - name: Dump IB Gateway logs (on failure)
+        if: failure()
+        run: |
+          echo "=== Full IB Gateway container logs ==="
+          docker logs ib-gateway 2>&1 || echo "Container not available"
 
       - name: Stop IB Gateway
         if: always()
