@@ -23,6 +23,14 @@ MODULE_NODES = {
     "MOD_ibkrClient": "src/broker/ibkr_client.py",
     "MOD_pnl": "src/pnl.py",
     "MOD_pricing": "src/pricing.py",
+    "MOD_config": "src/config.py",
+    "MOD_models": "src/models.py",
+    "MOD_protocol": "src/broker/protocol.py",
+    "MOD_mock_broker": "src/broker/mock_broker.py",
+    "MOD_data_loader": "src/data_loader.py",
+    "MOD_position": "src/position.py",
+    "MOD_scanner_engine": "src/scanner_engine.py",
+    "MOD_normalization": "src/normalization.py",
 }
 
 CLASS_NODES = {
