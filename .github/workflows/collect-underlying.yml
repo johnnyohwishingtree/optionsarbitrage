@@ -1,0 +1,173 @@
+name: Collect Underlying Prices
+
+on:
+  workflow_dispatch:
+    inputs:
+      date:
+        description: 'Date to collect (YYYYMMDD). Leave empty for today.'
+        required: false
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Validate secrets
+        run: |
+          if [ -z "${{ secrets.IB_USERNAME }}" ]; then
+            echo "ERROR: IB_USERNAME secret is not configured"
+            exit 1
+          fi
+          if [ -z "${{ secrets.IB_PASSWORD }}" ]; then
+            echo "ERROR: IB_PASSWORD secret is not configured"
+            exit 1
+          fi
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: pip install ib_async pandas pytz
+
+      - name: Determine date
+        id: date
+        run: |
+          if [ -n "${{ inputs.date }}" ]; then
+            echo "date=${{ inputs.date }}" >> $GITHUB_OUTPUT
+          else
+            echo "date=$(TZ='America/New_York' date +%Y%m%d)" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Start IB Gateway
+        run: |
+          docker run -d --name ib-gateway \
+            -p 4002:4004 \
+            -e TWS_USERID=${{ secrets.IB_USERNAME }} \
+            -e TWS_PASSWORD=${{ secrets.IB_PASSWORD }} \
+            -e TRADING_MODE=paper \
+            -e READ_ONLY_API=no \
+            -e TWOFA_TIMEOUT_ACTION=restart \
+            -e EXISTING_SESSION_DETECTED_ACTION=primary \
+            ghcr.io/gnzsnz/ib-gateway:stable
+
+      - name: Wait for IB Gateway API
+        run: |
+          echo "Waiting for IB Gateway to start..."
+          for i in $(seq 1 90); do
+            if nc -z localhost 4002 2>/dev/null; then
+              echo "Port 4002 is open. Waiting for authentication..."
+              sleep 15
+              docker logs ib-gateway 2>&1 | tail -5
+              python -c "
+          from ib_async import IB
+          ib = IB()
+          ib.connect('127.0.0.1', 4002, clientId=999)
+          print('IB Gateway API verified')
+          ib.disconnect()
+          " && exit 0
+              echo "API test failed, retrying..."
+            fi
+            if [ $((i % 10)) -eq 0 ]; then
+              echo "  Still waiting... ($i/90)"
+              docker logs ib-gateway 2>&1 | tail -3
+            fi
+            sleep 2
+          done
+          echo "=== IB Gateway failed. Full logs: ==="
+          docker logs ib-gateway 2>&1
+          exit 1
+
+      - name: Collect underlying prices
+        run: |
+          DATE=${{ steps.date.outputs.date }}
+          python -c "
+          import sys, os, pandas as pd
+          from datetime import datetime
+
+          sys.path.insert(0, '.')
+          try:
+              import ib_async
+              sys.modules['ib_insync'] = ib_async
+          except ImportError:
+              import ib_insync as ib_async
+          from ib_async import IB, Stock, Index
+
+          DATE = '${DATE}'
+          SYMBOLS = {'SPY': Stock('SPY', 'SMART', 'USD'),
+                     'SPX': Index('SPX', 'CBOE', 'USD'),
+                     'XSP': Index('XSP', 'CBOE', 'USD')}
+
+          ib = IB()
+          ib.connect('127.0.0.1', 4002, clientId=600)
+          print(f'Connected to IB Gateway')
+
+          rows = []
+          for sym, contract in SYMBOLS.items():
+              ib.qualifyContracts(contract)
+              bars = ib.reqHistoricalData(
+                  contract, endDateTime='', durationStr='1 D',
+                  barSizeSetting='1 min', whatToShow='TRADES',
+                  useRTH=True, formatDate=1)
+              count = 0
+              for bar in bars:
+                  bar_time = pd.to_datetime(bar.date, utc=True)
+                  if bar_time.strftime('%Y%m%d') != DATE:
+                      continue
+                  rows.append({'symbol': sym, 'time': bar.date,
+                               'open': bar.open, 'high': bar.high,
+                               'low': bar.low, 'close': bar.close,
+                               'volume': bar.volume})
+                  count += 1
+              print(f'  {sym}: {count} bars')
+
+          ib.disconnect()
+
+          if not rows:
+              print('ERROR: No data collected')
+              sys.exit(1)
+
+          os.makedirs('data', exist_ok=True)
+          out = f'data/underlying_prices_{DATE}.csv'
+          pd.DataFrame(rows).to_csv(out, index=False)
+          print(f'Saved {len(rows)} bars to {out}')
+          "
+
+      - name: Verify and commit
+        run: |
+          DATE=${{ steps.date.outputs.date }}
+          FILE="data/underlying_prices_${DATE}.csv"
+          if [ ! -f "$FILE" ]; then
+            echo "ERROR: $FILE was not created"
+            exit 1
+          fi
+          LINES=$(wc -l < "$FILE")
+          echo "$FILE: $LINES lines"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add "$FILE"
+          if git diff --cached --quiet; then
+            echo "No new data to commit (file already up to date)"
+          else
+            git commit -m "data: add underlying prices for ${DATE}"
+            git push
+            echo "Committed and pushed successfully"
+          fi
+
+      - name: Dump IB Gateway logs (on failure)
+        if: failure()
+        run: docker logs ib-gateway 2>&1 || true
+
+      - name: Stop IB Gateway
+        if: always()
+        run: docker stop ib-gateway && docker rm ib-gateway || true
