@@ -7,6 +7,8 @@ Contains pure functions for:
 - Best/worst case scenario analysis with basis drift
 """
 
+from src.config import GRID_PRICE_POINTS, GRID_PRICE_RANGE_PCT, GRID_BASIS_DRIFT_PCT
+
 
 def calculate_option_pnl(entry_price, exit_price, action, quantity):
     """Calculate P&L for an option position"""
@@ -32,8 +34,8 @@ def calculate_best_worst_case_with_basis_drift(
     sell_put_price, buy_put_price, sell_puts_qty, buy_puts_qty,
     show_calls, show_puts,
     sym1='SPY', sym2='SPX',
-    price_range_pct=0.05,  # +/-5% price range
-    basis_drift_pct=0.001  # +/-0.10% basis drift
+    price_range_pct=GRID_PRICE_RANGE_PCT,
+    basis_drift_pct=GRID_BASIS_DRIFT_PCT
 ):
     """
     Calculate best/worst case P&L accounting for both price movement AND basis drift.
@@ -55,7 +57,7 @@ def calculate_best_worst_case_with_basis_drift(
     worst_scenario = {}
 
     # Iterate through sym1 prices (+/-5% range)
-    num_price_points = 50  # Reduced for performance since we add basis dimension
+    num_price_points = GRID_PRICE_POINTS
     spy_min = entry_spy_price * (1 - price_range_pct)
     spy_max = entry_spy_price * (1 + price_range_pct)
     spy_step = (spy_max - spy_min) / (num_price_points - 1)

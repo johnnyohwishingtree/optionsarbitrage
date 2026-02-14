@@ -278,38 +278,38 @@ class TestBusinessConstants:
 
     def test_wide_spread_threshold(self):
         """Wide spread warning triggers at >20%."""
-        source = _read_source("src/pricing.py")
-        match = re.search(r'spread_pct.*>\s*20', source)
+        source = _read_source("src/config.py")
+        match = re.search(r'WIDE_SPREAD_THRESHOLD\s*=\s*20', source)
         assert match, (
-            "Expected wide spread threshold of 20% in src/pricing.py. "
+            "Expected WIDE_SPREAD_THRESHOLD = 20 in src/config.py. "
             "If this changed, update flow-price-discovery.mmd and CLAUDE.md."
         )
 
     def test_grid_search_price_points(self):
         """Grid search uses 50 price points."""
-        source = _read_source("src/pnl.py")
-        match = re.search(r'num_price_points\s*=\s*50', source)
+        source = _read_source("src/config.py")
+        match = re.search(r'GRID_PRICE_POINTS\s*=\s*50', source)
         assert match, (
-            "Expected num_price_points = 50 in src/pnl.py. "
+            "Expected GRID_PRICE_POINTS = 50 in src/config.py. "
             "If this changed, update flow-best-worst-case.mmd, strategy-overview.mmd, "
             "and CLAUDE.md."
         )
 
     def test_grid_search_price_range(self):
         """Grid search covers ±5% price range."""
-        source = _read_source("src/pnl.py")
-        match = re.search(r'price_range_pct\s*=\s*0\.05', source)
+        source = _read_source("src/config.py")
+        match = re.search(r'GRID_PRICE_RANGE_PCT\s*=\s*0\.05', source)
         assert match, (
-            "Expected price_range_pct = 0.05 (±5%) in src/pnl.py. "
+            "Expected GRID_PRICE_RANGE_PCT = 0.05 (±5%) in src/config.py. "
             "If this changed, update flow-best-worst-case.mmd and CLAUDE.md."
         )
 
     def test_grid_search_basis_drift(self):
         """Grid search tests ±0.10% basis drift."""
-        source = _read_source("src/pnl.py")
-        match = re.search(r'basis_drift_pct\s*=\s*0\.001', source)
+        source = _read_source("src/config.py")
+        match = re.search(r'GRID_BASIS_DRIFT_PCT\s*=\s*0\.001', source)
         assert match, (
-            "Expected basis_drift_pct = 0.001 (±0.10%) in src/pnl.py. "
+            "Expected GRID_BASIS_DRIFT_PCT = 0.001 (±0.10%) in src/config.py. "
             "If this changed, update flow-best-worst-case.mmd, strategy-overview.mmd, "
             "and CLAUDE.md."
         )

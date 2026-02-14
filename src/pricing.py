@@ -7,6 +7,8 @@ Contains pure functions for:
 - Liquidity-aware price resolution
 """
 
+from src.config import WIDE_SPREAD_THRESHOLD
+
 
 def get_option_price_from_db(df_options, symbol, strike, right, entry_time):
     """
@@ -158,7 +160,7 @@ def get_option_price_with_liquidity(df_options, df_bidask, symbol, strike, right
                 else:
                     result['is_stale'] = True
                     result['liquidity_warning'] = f"STALE (vol=0, no valid quotes)"
-            elif result['spread_pct'] is not None and result['spread_pct'] > 20:
+            elif result['spread_pct'] is not None and result['spread_pct'] > WIDE_SPREAD_THRESHOLD:
                 result['liquidity_warning'] = f"Wide spread: {result['spread_pct']:.1f}%"
 
             return result
