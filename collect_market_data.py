@@ -151,6 +151,16 @@ def collect_daily_data(date_str=None, strike_range_pct=0.03, force_full=False, d
         return False
 
     try:
+        # Determine endDateTime for IB historical data requests
+        # '' means "now" (good for today's incremental updates)
+        # For past dates, specify end-of-day so IB returns that day's data
+        today_str = datetime.now().strftime('%Y%m%d')
+        if date_str == today_str:
+            end_dt = ''
+        else:
+            end_dt = f'{date_str} 20:00:00 US/Eastern'
+            print(f'\n📅 Requesting historical data ending at: {end_dt}')
+
         # Index-type symbols (use Index contract for underlying)
         INDEX_SYMBOLS = {'SPX', 'XSP'}
 
@@ -171,7 +181,7 @@ def collect_daily_data(date_str=None, strike_range_pct=0.03, force_full=False, d
 
             bars = client.ib.reqHistoricalData(
                 contract,
-                endDateTime='',
+                endDateTime=end_dt,
                 durationStr='1 D',
                 barSizeSetting='1 min',
                 whatToShow='TRADES',
@@ -385,7 +395,7 @@ def collect_daily_data(date_str=None, strike_range_pct=0.03, force_full=False, d
                     for (sym, strike, right), contract in batch:
                         futures.append(
                             client.ib.reqHistoricalDataAsync(
-                                contract, endDateTime='', durationStr='1 D',
+                                contract, endDateTime=end_dt, durationStr='1 D',
                                 barSizeSetting='1 min', whatToShow=what_to_show,
                                 useRTH=True, formatDate=1
                             )
@@ -426,7 +436,7 @@ def collect_daily_data(date_str=None, strike_range_pct=0.03, force_full=False, d
                     for (sym, strike, right), contract in batch:
                         try:
                             bars = client.ib.reqHistoricalData(
-                                contract, endDateTime='', durationStr='1 D',
+                                contract, endDateTime=end_dt, durationStr='1 D',
                                 barSizeSetting='1 min', whatToShow=what_to_show,
                                 useRTH=True, formatDate=1
                             )

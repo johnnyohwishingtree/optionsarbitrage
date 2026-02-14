@@ -95,7 +95,13 @@ jobs:
               import ib_insync as ib_async
           from ib_async import IB, Stock, Index
 
+          from datetime import datetime
           DATE = '${DATE}'
+          today = datetime.now().strftime('%Y%m%d')
+          end_dt = '' if DATE == today else f'{DATE} 20:00:00 US/Eastern'
+          if end_dt:
+              print(f'Requesting historical data ending at: {end_dt}')
+
           SYMBOLS = {'SPY': Stock('SPY', 'SMART', 'USD'),
                      'SPX': Index('SPX', 'CBOE', 'USD'),
                      'XSP': Index('XSP', 'CBOE', 'USD')}
@@ -108,7 +114,7 @@ jobs:
           for sym, contract in SYMBOLS.items():
               ib.qualifyContracts(contract)
               bars = ib.reqHistoricalData(
-                  contract, endDateTime='', durationStr='1 D',
+                  contract, endDateTime=end_dt, durationStr='1 D',
                   barSizeSetting='1 min', whatToShow='TRADES',
                   useRTH=True, formatDate=1)
               count = 0
